@@ -1,35 +1,225 @@
 #slux name nmap
-#slux desc "scan the simulated internet — hosts are up, ports are open"
+#slux desc "network exploration tool and security / port scanner (simulated internet)"
 #slux version 1.0.0
 
 # bash section — LUNIX bash, run on install. creates the tool's files.
-mkdir /usr/bin
-echo "nmap: the simulated internet is mostly open ports and optimism" > /usr/bin/nmap.README.txt
+mkdir -p /usr/bin
+echo "nmap — the simulated internet is deterministic, but the output is authentic" > /usr/bin/nmap.README.txt
 
 #slux code
+function helpText() {
+  return "Nmap 7.94 ( https://nmap.org )\nUsage: nmap [Scan Type(s)] [Options] {target specification}\nTARGET SPECIFICATION:\n  Can pass hostnames, IP addresses, networks, etc.\n  Ex: scanme.nmap.org, microsoft.com/24, 192.168.0.1; 10.0.0-255.1-254\nSCAN TECHNIQUES:\n  -sS/sT/sA/sW/sM: TCP SYN/Connect()/ACK/Window/Maimon scans\n  -sU: UDP Scan\n  -sn: Ping Scan - disable port scan\nPORT SPECIFICATION AND SCAN ORDER:\n  -p <port ranges>: Only scan specified ports. Ex: -p22; -p1-65535; -p U:53,111,137,T:21-25\n  -F: Fast mode - Scan fewer ports than the default scan\nSERVICE/VERSION DETECTION:\n  -sV: Probe open ports to determine service/version info\n  --version-intensity <level>: 0 (light) to 9 (try all probes)\nOS DETECTION:\n  -O: Enable OS detection\n  -A: Enable OS detection, version detection, script scanning\nTIMING AND PERFORMANCE:\n  -T<0-5>: Set timing template (higher is faster)\nFIREWALL/IDS EVASION AND SPOOFING:\n  -Pn: Disable host discovery\nOUTPUT:\n  -oN <file>: Output scan in normal, to the given filename\n  -oX <file>: Output scan in XML, to the given filename\n  -oG <file>: Output scan in grepable format, to the given filename\n  -v: Increase verbosity level (-vv or -v -v for more)\n  --top-ports <number>: Scan <number> most common ports\nEXAMPLES:\n  nmap -v scanme.nmap.org\n  nmap -sV -p 22,80,443 192.168.86.100\n  nmap -sn 192.168.86.0/24\n  nmap -O -A 192.168.86.100";
+}
 register("nmap", function (args) {
-  var hosts = args.filter(function (a) { return a.indexOf("-") !== 0; });
-  var host = hosts[hosts.length - 1] || "192.168.86.100";
-  var sv = args.indexOf("-sV") !== -1;
-  var sn = args.indexOf("-sn") !== -1;
-  var ports = [22, 80, 443, 8080];
-  var pi = args.indexOf("-p");
-  if (pi !== -1 && args[pi + 1]) {
-    ports = args[pi + 1].split(",").map(function (x) { return parseInt(x, 10); }).filter(function (x) { return x > 0; });
+  var now = function () { return new Date().toUTCString().replace(" GMT", "").replace(/^\w+, /, ""); };
+  var opts = { sV: false, sn: false, sU: false, sT: false, O: false, Pn: false, v: 0, F: false, T: 3, ports: null, top: 0, outN: null, outG: null, outX: null, targets: [] };
+
+  for (var i = 0; i < args.length; i++) {
+    var a = args[i];
+    if (a === "--help" || a === "-h") { print(helpText()); return; }
+    if (a === "-sV" || a === "--version" || a === "--version-detection") opts.sV = true;
+    else if (a === "-sn" || a === "-sP") opts.sn = true;
+    else if (a === "-sS") opts.sS = true;
+    else if (a === "-sT") opts.sT = true;
+    else if (a === "-sU") opts.sU = true;
+    else if (a === "-O" || a === "--osscan") opts.O = true;
+    else if (a === "-A") { opts.A = true; opts.sV = true; opts.O = true; }
+    else if (a === "-Pn" || a === "--no-ping") opts.Pn = true;
+    else if (a === "-p-") opts.ports = ["1-65535"];
+    else if (a === "-p" || a === "--port" || a === "--ports") { opts.ports = (args[++i] || "").split(","); }
+    else if (a === "--top-ports") opts.top = parseInt(args[++i], 10) || 100;
+    else if (a.indexOf("-T") === 0 && /^-[Tt][0-5]$/.test(a)) opts.T = parseInt(a.slice(2), 10);
+    else if (a === "-oN") opts.outN = args[++i];
+    else if (a === "-oG") opts.outG = args[++i];
+    else if (a === "-oX") opts.outX = args[++i];
+    else if (a === "-F" || a === "--fast") opts.F = true;
+    else if (a.indexOf("-v") === 0) opts.v += a.length - 1;
+    else if (a.indexOf("-") === 0) { err("nmap: unrecognized option '" + a + "'"); return; }
+    else opts.targets.push(a);
   }
-  print("Starting Nmap 7.94 ( https://nmap.org ) at " + new Date().toTimeString().slice(0, 8));
-  if (sn) {
-    print("Nmap scan report for " + host + " (the sim)");
-    print("Host is up (0.0011s latency).");
-    print("MAC Address: 00:1A:2B:3C:4D:5E (BlueberryServices)");
-    print("Nmap done: 1 IP address (1 host up) scanned in 0.42 seconds");
+
+  if (!opts.targets.length) {
+    err("nmap: no target was specified. try 'nmap 192.168.86.100' or 'nmap --help'");
     return;
   }
-  print("Nmap scan report for " + host + " (the sim)");
-  print("Host is up (0.0000s latency).");
-  var svname = { 22: "ssh    OpenSSH 9.7", 80: "http   nginx 1.27", 443: "https  nginx 1.27", 8080: "http   nginx 1.27" };
-  for (var i = 0; i < ports.length; i++) {
-    print(ports[i] + "/tcp open  " + (sv ? (svname[ports[i]] || "tcpwrapped") : "tcpwrapped"));
+
+  function hash(s) { var h = 2166136261; for (var i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; }
+  function rng(seed) { var s = seed >>> 0; return function () { s = (Math.imul(s, 1664525) + 1013904223) >>> 0; return s / 4294967296; }; }
+  function resolveHost(h) {
+    if (h === "lunix" || h === "localhost") return h === "lunix" ? "192.168.86.100" : "127.0.0.1";
+    if (/^(\d{1,3}\.){3}\d{1,3}$/.test(h)) return h;
+    return null;
   }
-  print("Nmap done: 1 IP address (1 host up) scanned in 0.05 seconds");
+  function expandTarget(t) {
+    var out = [];
+    var m = t.match(/^(\d{1,3}\.\d{1,3}\.\d{1,3}\.)(\d{1,3})-(\d{1,3})$/);
+    if (m) { for (var i = +m[2]; i <= +m[3]; i++) out.push(m[1] + i); return out; }
+    m = t.match(/^(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\/(\d{1,2})$/);
+    if (m) {
+      var bits = +m[2];
+      if (bits < 8 || bits > 32) { err("nmap: invalid CIDR: " + t); return out; }
+      var ip = m[1].split(".").map(Number);
+      var mask = bits === 32 ? 0xFFFFFFFF : (0xFFFFFFFF << (32 - bits)) >>> 0;
+      var base = ((ip[0] << 24) | (ip[1] << 16) | (ip[2] << 8) | ip[3]) & mask;
+      var count = 1 << (32 - bits);
+      if (count > 1024) { err("nmap: " + t + " expands to " + count + " hosts — the browser is not that patient"); return out; }
+      for (var j = 0; j < count; j++) { var v = base + j; out.push((v >>> 24) + "." + ((v >> 16) & 255) + "." + ((v >> 8) & 255) + "." + (v & 255)); }
+      return out;
+    }
+    out.push(t);
+    return out;
+  }
+  function isPrivate(ip) {
+    return ip === "127.0.0.1" || ip === "192.168.86.100" || /^10\./.test(ip) || /^192\.168\./.test(ip) || /^172\.(1[6-9]|2\d|3[01])\./.test(ip);
+  }
+  function mac(r) {
+    var b = [];
+    for (var i = 0; i < 6; i++) b.push(("0" + Math.floor(r() * 256).toString(16)).slice(-2));
+    b[0] = "00";
+    return b.join(":").toUpperCase();
+  }
+  function portList() {
+    var COMMON = [21, 22, 23, 25, 53, 80, 110, 111, 135, 139, 143, 443, 445, 993, 995, 1723, 3306, 3389, 5432, 5900, 6379, 8000, 8080, 8443, 8888, 27017];
+    var set = [];
+    var src = opts.ports;
+    if (!src) {
+      if (opts.top) { for (var i = 0; i < Math.min(opts.top, COMMON.length); i++) set.push(COMMON[i]); }
+      else if (opts.F) { for (var f = 0; f < 12; f++) set.push(COMMON[f]); }
+      else set = COMMON.slice();
+    } else {
+      for (var i = 0; i < src.length; i++) {
+        var part = src[i].trim();
+        if (!part) continue;
+        var m = part.match(/^(\d+)-(\d+)$/);
+        if (m) { for (var p = +m[1]; p <= +m[2]; p++) set.push(p); }
+        else { var n = parseInt(part, 10); if (n > 0 && n < 65536) set.push(n); }
+      }
+    }
+    return set.filter(function (x, idx) { return set.indexOf(x) === idx; }).sort(function (a, b) { return a - b; });
+  }
+  var TCP_SVC = { 21: "ftp", 22: "ssh", 23: "telnet", 25: "smtp", 53: "domain", 80: "http", 110: "pop3", 111: "rpcbind", 135: "msrpc", 139: "netbios-ssn", 143: "imap", 443: "https", 445: "microsoft-ds", 993: "imaps", 995: "pop3s", 1723: "pptp", 3306: "mysql", 3389: "ms-wbt-server", 5432: "postgresql", 5900: "vnc", 6379: "redis", 8000: "http-alt", 8080: "http-proxy", 8443: "https-alt", 8888: "sun-answerbook", 27017: "mongod" };
+  var UDP_SVC = { 53: "domain", 123: "ntp", 137: "netbios-ns", 161: "snmp", 500: "isakmp", 514: "syslog", 1900: "upnp", 5353: "mdns" };
+  var VERS = { "ssh": ["OpenSSH 9.7p1 Debian 4+deb12u7 (protocol 2.0)", "OpenSSH 8.9p1 Ubuntu 3ubuntu0.10 (protocol 2.0)", "OpenSSH 7.6p1 Ubuntu 4ubuntu0.7 (protocol 2.0)"], "http": ["nginx 1.27.0", "Apache httpd 2.4.62 ((Ubuntu))", "lighttpd 1.4.73"], "https": ["nginx 1.27.0", "Apache httpd 2.4.62 ((Ubuntu))", "nginx 1.18.0 (Ubuntu)"], "mysql": ["MySQL 8.0.39", "MySQL 5.7.44"], "postgresql": ["PostgreSQL 16.4 (Debian 16.4-1.pgdg120+1)", "PostgreSQL 13.16"], "redis": ["Redis server v=7.2.5 sha=00000000:0 malloc=jemalloc", "Redis server v=6.2.14"], "mongod": ["MongoDB 7.0.14", "MongoDB 5.0.27"], "ftp": ["vsftpd 3.0.5", "ProFTPD 1.3.8b"], "smtp": ["Postfix smtpd", "Exim smtpd 4.97"], "telnet": ["Linux telnetd", "BusyBox telnetd"], "domain": ["ISC BIND 9.18.28 (Extended Support Version)", "dnsmasq 2.90"], "snmp": ["net-snmp 5.9.4", "net-snmp 5.8"], "vnc": ["VNC (protocol 3.8)", "TightVNC (protocol 3.8)"], "ms-wbt-server": ["Microsoft RDP", "xrdp"], "http-alt": ["Python http.server 3.11", "Node.js http server"], "http-proxy": ["Squid http proxy 6.10", "mitmproxy 10.3.0"], "ntp": ["ntpd 4.2.8p15", "chronyd 4.5"], "upnp": ["MiniUPnP 1.9"], "mdns": ["Apple Bonjour", "Avahi mDNS 0.8"] };
+  var OSES = ["Linux 4.15 - 5.8", "Linux 5.4 - 6.1", "Linux 3.2 - 4.9", "FreeBSD 13.2", "OpenBSD 7.4", "Windows Server 2019", "Windows 10/11", "Linux 6.1 - 6.8"];
+
+  var hosts = [];
+  var unresolved = [];
+  for (var i = 0; i < opts.targets.length; i++) {
+    var expanded = expandTarget(opts.targets[i]);
+    for (var j = 0; j < expanded.length; j++) {
+      var h = resolveHost(expanded[j]);
+      if (h) { if (hosts.indexOf(h) === -1) hosts.push(h); }
+      else unresolved.push(expanded[j]);
+    }
+  }
+
+  var ports = portList();
+  var results = [];
+  var totalUp = 0;
+
+  if (hosts.length && opts.v) {
+    print("Initiating Parallel DNS resolution of " + hosts.length + " host" + (hosts.length > 1 ? "s" : "") + ". at " + now());
+    print("Initiating " + (opts.sU ? "UDP Scan" : opts.sT ? "Connect Scan" : "SYN Stealth Scan") + " at " + now());
+  }
+
+  for (var hi = 0; hi < hosts.length; hi++) {
+    var ip = hosts[hi];
+    var r = rng(hash(ip));
+    var priv = isPrivate(ip);
+    var up = opts.Pn || priv || r() > 0.08;
+    var res = { ip: ip, up: up, priv: priv, opens: [], closed: [], mac: priv ? mac(r) : null, os: null, lat: (0.0005 + r() * 0.02).toFixed(4) };
+    if (up) totalUp++;
+    if (up && !opts.sn) {
+      var fixed = { "192.168.86.100": [22, 80, 443, 3306, 5432, 6379, 8080, 27017], "127.0.0.1": [22, 25, 80, 443, 631, 3306, 5432] }[ip];
+      for (var pi = 0; pi < ports.length; pi++) {
+        var port = ports[pi];
+        var isOpen = fixed ? fixed.indexOf(port) !== -1 : r() < 0.10 + (TCP_SVC[port] ? 0.20 : 0);
+        if (isOpen) res.opens.push(port);
+        else res.closed.push(port);
+      }
+      if (opts.O) {
+        res.os = ip === "192.168.86.100" ? "LUNIX 6.6.browser-0-lunix (the sim)" : OSES[Math.floor(r() * OSES.length)] + " (" + (85 + Math.floor(r() * 14)) + "%)";
+        res.hops = priv ? 1 : 5 + Math.floor(r() * 8);
+      }
+    }
+    results.push(res);
+  }
+
+  var elapsed = (0.05 + rng(hash("t" + hosts.join(",")))() * 2.9).toFixed(2);
+  for (var ri = 0; ri < results.length; ri++) {
+    var res = results[ri];
+    if (!res.up) {
+      print("Nmap scan report for " + res.ip);
+      print("Host is down. If it is really up, but blocking our ping probes, try -Pn");
+      continue;
+    }
+    print("Nmap scan report for " + res.ip);
+    print("Host is up (" + res.lat + "s latency).");
+    if (res.mac) print("MAC Address: " + res.mac + " (BlueberryServices)");
+    if (opts.sn) continue;
+    var svc = opts.sU ? UDP_SVC : TCP_SVC;
+    if (res.closed.length) {
+      if (res.opens.length === 0) print("All " + ports.length + " scanned ports on " + res.ip + " are in ignored states.");
+      else print("Not shown: " + res.closed.length + " closed tcp port" + (res.closed.length > 1 ? "s" : "") + " (" + (opts.sU ? "port-unreach" : "reset") + ")");
+    }
+    if (res.opens.length) {
+      var pad = function (s, w) { s = String(s); while (s.length < w) s += " "; return s; };
+      print("PORT     STATE         SERVICE" + (opts.sV ? " VERSION" : ""));
+      for (var oi = 0; oi < res.opens.length; oi++) {
+        var pt = res.opens[oi];
+        var name = svc[pt] || "unknown";
+        var ver = opts.sV && VERS[name] ? VERS[name][Math.floor(r() * VERS[name].length)] : "";
+        print(pad(pt + "/" + (opts.sU ? "udp" : "tcp"), 10) + pad("open", 7) + pad(name, 12) + (opts.sV && ver ? ver : ""));
+      }
+    }
+    if (res.os) {
+      print("OS details: " + res.os);
+      print("Network Distance: " + res.hops + " hops");
+    }
+  }
+
+  for (var ui = 0; ui < unresolved.length; ui++) err("nmap: Failed to resolve \"" + unresolved[ui] + "\".");
+
+  if (opts.v) print("Completed " + (opts.sU ? "UDP Scan" : opts.sT ? "Connect Scan" : "SYN Stealth Scan") + " at " + now() + ", " + elapsed + "s elapsed");
+  print("Nmap done: " + (hosts.length + unresolved.length) + " IP address" + (hosts.length + unresolved.length > 1 ? "es" : "") + " (" + totalUp + " host" + (totalUp === 1 ? "" : "s") + " up) scanned in " + elapsed + " seconds");
+  print("Raw packets sent: " + (ports.length * hosts.length * 2 + 40) + " (" + (ports.length * hosts.length * 0.08).toFixed(2) + "KB) | Rcvd: " + (ports.length * hosts.length + 20) + " (" + (ports.length * hosts.length * 0.04).toFixed(2) + "KB) | Lost: 0 (0.00%)");
+
+  if (opts.outN || opts.outG || opts.outX) {
+    var head = "# Nmap 7.94 scan initiated " + now() + " as: nmap " + args.join(" ");
+    var n = [], g = [], x = [];
+    if (opts.outN) n.push(head, "");
+    if (opts.outG) g.push(head, "# Nmap done at " + now() + " -- " + hosts.length + " IP addresses (" + totalUp + " hosts up) scanned in " + elapsed + " seconds");
+    if (opts.outX) x.push("<?xml version=\"1.0\"?>", "<nmaprun scanner=\"nmap\" args=\"" + args.join(" ") + "\" start=\"" + Math.floor(Date.now() / 1000) + "\">");
+    for (var wi = 0; wi < results.length; wi++) {
+      var w = results[wi];
+      if (!w.up) continue;
+      if (opts.outN) {
+        n.push("Nmap scan report for " + w.ip);
+        for (var on = 0; on < w.opens.length; on++) n.push(String(w.opens[on]) + "/tcp open " + (TCP_SVC[w.opens[on]] || "unknown"));
+        n.push("");
+      }
+      if (opts.outG) {
+        var gps = [];
+        for (var og = 0; og < w.opens.length; og++) gps.push(w.opens[og] + "/open/tcp//" + (TCP_SVC[w.opens[og]] || "unknown") + "///");
+        g.push("Host: " + w.ip + " ()    Ports: " + gps.join(", "));
+      }
+      if (opts.outX) {
+        x.push("<host><address addr=\"" + w.ip + "\" addrtype=\"ipv4\"/><ports>");
+        for (var ox = 0; ox < w.opens.length; ox++) x.push("<port protocol=\"tcp\" portid=\"" + w.opens[ox] + "\"><state state=\"open\"/><service name=\"" + (TCP_SVC[w.opens[ox]] || "unknown") + "\" version=\"\"/></port>");
+        x.push("</ports></host>");
+      }
+    }
+    if (opts.outX) x.push("</nmaprun>");
+    var fw = function (path, lines) {
+      var tgt = norm(resolve(path));
+      fs[tgt] = { type: "file", data: lines.join("\n") + "\n" };
+      var p = parent(tgt);
+      if (fs[p] && fs[p].kids && fs[p].kids.indexOf(leaf(tgt)) === -1) fs[p].kids.push(leaf(tgt));
+      saveState();
+      print("nmap: wrote " + lines.length + " lines to " + cwd + "/" + path);
+    };
+    if (opts.outN) fw(opts.outN, n);
+    if (opts.outG) fw(opts.outG, g);
+    if (opts.outX) fw(opts.outX, x);
+  }
 });
