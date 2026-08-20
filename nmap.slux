@@ -1,0 +1,35 @@
+#slux name nmap
+#slux desc "scan the simulated internet — hosts are up, ports are open"
+#slux version 1.0.0
+
+# bash section — LUNIX bash, run on install. creates the tool's files.
+mkdir /usr/bin
+echo "nmap: the simulated internet is mostly open ports and optimism" > /usr/bin/nmap.README.txt
+
+#slux code
+register("nmap", function (args) {
+  var hosts = args.filter(function (a) { return a.indexOf("-") !== 0; });
+  var host = hosts[hosts.length - 1] || "192.168.86.100";
+  var sv = args.indexOf("-sV") !== -1;
+  var sn = args.indexOf("-sn") !== -1;
+  var ports = [22, 80, 443, 8080];
+  var pi = args.indexOf("-p");
+  if (pi !== -1 && args[pi + 1]) {
+    ports = args[pi + 1].split(",").map(function (x) { return parseInt(x, 10); }).filter(function (x) { return x > 0; });
+  }
+  print("Starting Nmap 7.94 ( https://nmap.org ) at " + new Date().toTimeString().slice(0, 8));
+  if (sn) {
+    print("Nmap scan report for " + host + " (the sim)");
+    print("Host is up (0.0011s latency).");
+    print("MAC Address: 00:1A:2B:3C:4D:5E (BlueberryServices)");
+    print("Nmap done: 1 IP address (1 host up) scanned in 0.42 seconds");
+    return;
+  }
+  print("Nmap scan report for " + host + " (the sim)");
+  print("Host is up (0.0000s latency).");
+  var svname = { 22: "ssh    OpenSSH 9.7", 80: "http   nginx 1.27", 443: "https  nginx 1.27", 8080: "http   nginx 1.27" };
+  for (var i = 0; i < ports.length; i++) {
+    print(ports[i] + "/tcp open  " + (sv ? (svname[ports[i]] || "tcpwrapped") : "tcpwrapped"));
+  }
+  print("Nmap done: 1 IP address (1 host up) scanned in 0.05 seconds");
+});
