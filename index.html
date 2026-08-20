@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
 <title>lunix: ~ — LUNIX</title>
 <style>
   :root {
@@ -14,7 +14,7 @@
     --accent: #e95420;
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  html, body { height: 100%; }
+  html, body { height: 100%; touch-action: manipulation; }
   body {
     background: var(--bg);
     color: var(--fg);
@@ -31,6 +31,7 @@
     display: flex;
     flex-direction: column;
     height: calc(100vh - 30px);
+    height: calc(100dvh - 30px);
   }
   .term .body {
     flex: 1;
@@ -39,6 +40,8 @@
     white-space: pre-wrap;
     word-break: break-word;
     min-height: 0;
+    user-select: none;
+    -webkit-user-select: none;
   }
   .vt-line {
     display: flex; align-items: center; gap: 6px;
@@ -53,8 +56,31 @@
     outline: none;
     color: var(--fg);
     font: inherit;
+    font-size: 16px;
     caret-color: var(--fg);
     min-width: 60px;
+  }
+  .keys { display: none; }
+  .keys button {
+    background: #111;
+    color: var(--fg);
+    border: 1px solid #26262a;
+    border-radius: 4px;
+    font: inherit;
+    line-height: 1;
+    padding: 6px 12px;
+    touch-action: manipulation;
+  }
+  .keys button:active { background: var(--accent); color: #000; }
+
+  @media (max-width: 700px) {
+    body { font-size: 15px; }
+    .wrap { padding: 0 6px; }
+    .term .body { padding: 10px; }
+    .vt-line { padding: 8px 10px; }
+  }
+  @media (pointer: coarse) {
+    .keys { display: flex; gap: 6px; flex-shrink: 0; }
   }
 
   .u { color: var(--green); font-weight: 700; }
@@ -112,7 +138,11 @@
     <div class="body" id="vt-body"></div>
     <div class="vt-line">
       <span class="prompt" id="vt-prompt"></span>
-      <input id="vt-input" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="terminal input">
+      <input id="vt-input" autocomplete="off" autocapitalize="off" spellcheck="false" autocorrect="off" enterkeyhint="send" aria-label="terminal input">
+      <div class="keys">
+        <button data-key="up" aria-label="previous command">↑</button>
+        <button data-key="enter" aria-label="enter">⏎</button>
+      </div>
     </div>
   </div>
 
@@ -204,7 +234,9 @@ function saveState() {
   } catch (e) {}
 }
 
+var outHook = null;
 function out(html) {
+  if (outHook) { outHook(html); return; }
   var div = document.createElement("div");
   div.innerHTML = html;
   body.appendChild(div);
@@ -274,6 +306,10 @@ var CMDS = {
       "&nbsp;&nbsp;<span class='accent'>whoami</span>&nbsp;&nbsp;<span class='accent'>id</span>&nbsp;&nbsp;<span class='accent'>uname</span>&nbsp;&nbsp;<span class='accent'>hostname</span>&nbsp;&nbsp;<span class='accent'>uptime</span>&nbsp;&nbsp;<span class='accent'>date</span>&nbsp;&nbsp;<span class='accent'>free</span>&nbsp;&nbsp;<span class='accent'>history</span>&nbsp;&nbsp;<span class='accent'>clear</span><br>" +
       "&nbsp;&nbsp;<span class='accent'>apk update|add|del|search|info</span>&nbsp;&nbsp;<span class='accent'>ping</span>&nbsp;&nbsp;<span class='accent'>curl</span>&nbsp;&nbsp;<span class='accent'>wget</span><br>" +
       "&nbsp;&nbsp;<span class='accent'>sudo</span>&nbsp;&nbsp;<span class='accent'>su</span>&nbsp;&nbsp;<span class='accent'>exit</span>&nbsp;&nbsp;<span class='accent'>reboot</span>&nbsp;&nbsp;<span class='accent'>poweroff</span>&nbsp;&nbsp;<span class='accent'>end</span><br>" +
+      "&nbsp;&nbsp;<span class='accent'>save down|up|rm|du</span> — the bucket survives the purge<br>" +
+      "&nbsp;&nbsp;<span class='accent'>download</span> &lt;link|name&gt; — install tools from github into the virtual memory<br>" +
+      "&nbsp;&nbsp;<span class='accent'>exps</span> — export this whole session as a session.slux (files, pkgs, tools, history)<br>" +
+      "&nbsp;&nbsp;<span class='accent'>imps</span> [file] — import a session.slux and bring a previous session back to life<br>" +
       "installed tools light up: <span class='accent'>cowsay</span> <span class='accent'>python3</span> <span class='accent'>git</span> <span class='accent'>node</span> <span class='accent'>htop</span> <span class='accent'>lolcat</span> <span class='accent'>docker</span> ...");
   },
   clear: function () { body.innerHTML = ""; },
@@ -302,7 +338,16 @@ var CMDS = {
     }
   },
   cd: function (args) {
-    if (!args.length) { cwd = home(); promptEl.innerHTML = promptHtml(); return saveState(); }
+    if (!args.length) {
+      var h = home();
+      if (!exists(h)) {
+        fs[h] = { type: "dir", kids: [] };
+        if (fs["/home"].kids.indexOf(user) === -1) fs["/home"].kids.push(user);
+      }
+      cwd = h;
+      promptEl.innerHTML = promptHtml();
+      return saveState();
+    }
     var tgt = norm(resolve(args[0]));
     if (!exists(tgt)) return err("cd: no such file or directory: " + args[0]);
     if (typeOf(tgt) !== "dir") return err("cd: not a directory: " + args[0]);
@@ -325,9 +370,27 @@ var CMDS = {
   },
   mkdir: function (args) {
     if (!args.length) return err("mkdir: missing operand");
+    var pflag = false;
     for (var i = 0; i < args.length; i++) {
+      if (args[i] === "-p" || args[i] === "--parents") { pflag = true; continue; }
       var tgt = norm(resolve(args[i]));
-      if (exists(tgt)) return err("mkdir: cannot create directory '" + args[i] + "': File exists");
+      if (exists(tgt)) {
+        if (pflag && typeOf(tgt) === "dir") continue;
+        return err("mkdir: cannot create directory '" + args[i] + "': File exists");
+      }
+      if (pflag) {
+        var cur = "";
+        var parts = tgt.split("/").filter(Boolean);
+        for (var j = 0; j < parts.length; j++) {
+          cur += "/" + parts[j];
+          if (!exists(cur)) {
+            fs[cur] = { type: "dir", kids: [] };
+            var pp = parent(cur);
+            if (fs[pp] && fs[pp].kids && fs[pp].kids.indexOf(leaf(cur)) === -1) fs[pp].kids.push(leaf(cur));
+          }
+        }
+        continue;
+      }
       fs[tgt] = { type: "dir", kids: [] };
       var p = parent(tgt);
       if (fs[p] && fs[p].kids && fs[p].kids.indexOf(leaf(tgt)) === -1) fs[p].kids.push(leaf(tgt));
@@ -443,18 +506,37 @@ var CMDS = {
     showLogin();
   },
   reboot: function () {
-    boot();
+fixState();
+loadInstalled();
+boot();
   },
   history: function () {
     for (var i = 0; i < hist.length; i++) print("  " + (i + 1) + "  " + hist[i]);
   },
   ping: function (args) {
-    var host = args[0] || "1.1.1.1";
-    var times = [0.11, 0.09, 0.12, 0.10];
-    print("PING " + host + " (the browser) 56(84) bytes of data.");
-    for (var i = 0; i < times.length; i++) print("64 bytes from " + host + ": icmp_seq=" + (i + 1) + " ttl=57 time=" + times[i].toFixed(2) + " ms");
-    print("--- " + host + " ping statistics ---");
-    print("4 packets transmitted, 4 received, 0% packet loss, time 0ms — through the cloud, which is here");
+    var opts = { count: 4, interval: 1, size: 56, ttl: null, quiet: false, host: null };
+    for (var i = 0; i < args.length; i++) {
+      var a = args[i];
+      if (a === "-c") opts.count = parseInt(args[++i], 10);
+      else if (a === "-i") opts.interval = parseFloat(args[++i]);
+      else if (a === "-s") opts.size = parseInt(args[++i], 10);
+      else if (a === "-t") opts.ttl = parseInt(args[++i], 10);
+      else if (a === "-W") opts.W = parseInt(args[++i], 10);
+      else if (a === "-q") opts.quiet = true;
+      else if (a === "-h" || a === "--help") { print("Usage: ping [-c count] [-i interval] [-s packetsize] [-t ttl] [-W timeout] [-q] <host>"); return; }
+      else if (a.indexOf("-") === 0) { err("ping: invalid option '" + a + "'"); return; }
+      else opts.host = a;
+    }
+    if (!opts.host) { err("ping: usage error: Destination address required"); return; }
+    if (isNaN(opts.count) || opts.count < 1) { err("ping: invalid count: " + args[1]); return; }
+    var ip = opts.host === "lunix" ? "192.168.86.100" : opts.host === "localhost" ? "127.0.0.1" : (/^(\d{1,3}\.){3}\d{1,3}$/.test(opts.host) ? opts.host : null);
+    if (ip) runPing(opts, opts.host, ip);
+    else {
+      fetch("https://dns.google/resolve?name=" + encodeURIComponent(opts.host) + "&type=A").then(function (r) { return r.json(); }).then(function (d) {
+        if (!d || !d.Answer || !d.Answer.length) { err("ping: unknown host " + opts.host); return; }
+        runPing(opts, opts.host, d.Answer[0].data);
+      }).catch(function () { err("ping: unknown host " + opts.host + " (dns unreachable)"); });
+    }
   },
   curl: function (args) {
     var u = args[args.length - 1] || "";
@@ -467,6 +549,197 @@ var CMDS = {
     printHtml("<html><head><title>" + (host || "example") + "</title></head><body><h1>this website does not exist</h1><p>but if it did, it would be served instantly from the cloud.</p><p>the cloud is in your browser. everything is in your browser.</p></body></html>");
   },
   wget: function () { print("wget: this is curl's 90s cousin. use curl. or do not. both fake."); },
+  save: function (args) {
+    var API = location.protocol === "file:" ? "https://lunix.blueberryservices.co.za" : "";
+    var sub = args[0];
+    var bad = function (n) { return n.indexOf("/") !== -1 || n.indexOf("..") !== -1; };
+    var fmt = function (b) {
+      if (b < 1024) return b + " B";
+      if (b < 1048576) return (b / 1024).toFixed(1) + " KiB";
+      return (b / 1048576).toFixed(2) + " MiB";
+    };
+    var onerr = function () { err("save: the cloud is unreachable. the purge is still patient."); };
+    if (!sub) return print("usage: save down [<name>] | up <file> | rm <name> | du");
+    if (sub === "down" && !args[1]) {
+      fetch(API + "/api/bucket").then(function (r) { return r.json(); }).then(function (d) {
+        if (!d.files || !d.files.length) return print("save: the bucket is empty. nothing survives the purge. yet.");
+        printHtml("files in the bucket — they outlive the tab:<br>");
+        for (var i = 0; i < d.files.length; i++) {
+          printHtml("  <span class='blue'>" + esc(d.files[i].name) + "</span>&nbsp;&nbsp;" + fmt(d.files[i].size) + "&nbsp;&nbsp;<span class='dim'>" + esc((d.files[i].modified || "").slice(0, 10)) + "</span>");
+        }
+      }).catch(onerr);
+      return;
+    }
+    if (sub === "down") {
+      var n = args[1];
+      if (bad(n)) return err("save down: invalid name (no / or ..)");
+      fetch(API + "/api/bucket/" + encodeURIComponent(n)).then(function (r) {
+        if (r.status === 404) { err("save down: no such file in the bucket: " + n); return null; }
+        return r.text();
+      }).then(function (data) {
+        if (data === null) return;
+        var tgt = norm(resolve(n));
+        fs[tgt] = { type: "file", data: data };
+        var p = parent(tgt);
+        if (fs[p] && fs[p].kids && fs[p].kids.indexOf(leaf(tgt)) === -1) fs[p].kids.push(leaf(tgt));
+        saveState();
+        print("save down: wrote " + n + " (" + fmt(data.length) + ") to " + cwd + "/" + n + ". the purge will eat it unless you save up.");
+      }).catch(onerr);
+      return;
+    }
+    if (sub === "up") {
+      if (!args[1]) return err("save up: need a file from the virtual filesystem");
+      var up = norm(resolve(args[1]));
+      if (!exists(up)) return err("save up: no such file: " + args[1]);
+      if (typeOf(up) === "dir") return err("save up: " + args[1] + " is a directory. save a file, not a structure.");
+      var nm = leaf(up);
+      if (bad(nm)) return err("save up: invalid name");
+      fetch(API + "/api/bucket/" + encodeURIComponent(nm), { method: "PUT", body: fs[up].data }).then(function (r) { return r.json(); }).then(function (d) {
+        if (d.error) return err("save up: " + d.error);
+        print("save up: " + nm + " (" + fmt(d.size) + ") is now in the bucket. it survives the purge. use this power wisely.");
+      }).catch(onerr);
+      return;
+    }
+    if (sub === "rm") {
+      if (!args[1]) return err("save rm: need a name");
+      var rn = args[1];
+      if (bad(rn)) return err("save rm: invalid name (no / or ..)");
+      fetch(API + "/api/bucket/" + encodeURIComponent(rn), { method: "DELETE" }).then(function (r) { return r.json(); }).then(function (d) {
+        if (d.error) return err("save rm: " + d.error);
+        print("save rm: " + rn + " deleted from the bucket. back to the void.");
+      }).catch(onerr);
+      return;
+    }
+    if (sub === "du") {
+      fetch(API + "/api/bucket").then(function (r) { return r.json(); }).then(function (d) {
+        var total = 0;
+        for (var i = 0; i < (d.files || []).length; i++) total += d.files[i].size;
+        print("save du: " + (d.files || []).length + " files, " + fmt(total) + " — of the 10GB R2 bucket. the purge cannot reach it here.");
+      }).catch(onerr);
+      return;
+    }
+    print("save: unknown subcommand " + sub + ". try: save down | up <file> | rm <name> | du");
+  },
+  download: function (args) {
+    var t = args[0];
+    if (!t) return err("download: need a link or a tool name — e.g. download nmap, or download https://github.com/OMEGALULUL/LunixOS/blob/tools/nmap.slux");
+    if (t === "list") {
+      fetch("https://api.github.com/repos/OMEGALULUL/LunixOS/contents/?ref=tools").then(function (r) { return r.json(); }).then(function (d) {
+        if (!d || !d.length) return err("download: no tools found on the tools branch (or github said no)");
+        printHtml("tools on the <span class='accent'>tools</span> branch — install with <span class='accent'>download &lt;name&gt;</span>:<br>");
+        for (var i = 0; i < d.length; i++) {
+          if (d[i].name.indexOf(".slux") === -1) continue;
+          printHtml("&nbsp;&nbsp;<span class='blue'>" + esc(d[i].name.replace(".slux", "")) + "</span>&nbsp;&nbsp;<span class='dim'>" + esc(d[i].size + " B") + "</span>");
+        }
+      }).catch(function () { err("download: the github api is unreachable"); });
+      return;
+    }
+    if (t === "rm") {
+      if (!args[1]) return err("download rm: need a tool name");
+      var rn = args[1];
+      delete CMDS[rn];
+      var rf = norm(resolve("/usr/bin/" + rn + ".slux"));
+      if (exists(rf)) {
+        delete fs[rf];
+        var rp = parent(rf);
+        if (fs[rp] && fs[rp].kids) fs[rp].kids = fs[rp].kids.filter(function (k) { return (rp === "/" ? "/" + k : rp + "/" + k) !== rf; });
+      }
+      saveState();
+      return print("download: " + rn + " removed from the virtual memory. it never existed. mostly.");
+    }
+    var url = sluxUrl(t);
+    fetch(url).then(function (r) {
+      if (!r.ok) throw new Error("http " + r.status);
+      return r.text();
+    }).then(function (txt) {
+      var meta = parseSlux(txt);
+      var name = meta.name || leaf(url).replace(/\.slux$/i, "");
+      if (!name) return err("download: could not figure out the tool name");
+      for (var i = 0; i < meta.bash.length; i++) {
+        try { handleCmd(meta.bash[i]); } catch (e) {}
+      }
+      try { eval(meta.code); } catch (e) { return err("download: " + name + " failed to install: " + e.message); }
+      if (!exists("/usr/bin")) {
+        fs["/usr/bin"] = { type: "dir", kids: [] };
+        if (fs["/"].kids.indexOf("usr") === -1) fs["/"].kids.push("usr");
+      }
+      fs["/usr/bin/" + name + ".slux"] = { type: "file", data: txt };
+      if (fs["/usr/bin"].kids.indexOf(name + ".slux") === -1) fs["/usr/bin"].kids.push(name + ".slux");
+      saveState();
+      print("download: " + name + " installed into the virtual memory. it will outlive a refresh but not the purge.");
+    }).catch(function () { err("download: could not fetch " + url + " — check the link, or is the tool on the tools branch?"); });
+  },
+  exps: function (args) {
+    var dirs = [], files = 0;
+    for (var k in fs) {
+      if (fs[k].type === "dir") { if (k !== "/") dirs.push(k); }
+      else files++;
+    }
+    dirs.sort();
+    var lines = [];
+    lines.push("#slux name session");
+    lines.push('#slux desc "exported LUNIX session ' + SID + " — " + new Date().toUTCString() + '"');
+    lines.push("#slux version 1.0.0");
+    lines.push("");
+    lines.push("# reconstructed filesystem — bash section");
+    for (var i = 0; i < dirs.length; i++) lines.push("mkdir -p " + dirs[i]);
+    lines.push("");
+    lines.push("#slux code");
+    lines.push("(function () {");
+    lines.push("var data = " + JSON.stringify(fs) + ";");
+    lines.push("var keys = Object.keys(fs);");
+    lines.push("for (var i = 0; i < keys.length; i++) delete fs[keys[i]];");
+    lines.push("for (var k in data) fs[k] = data[k];");
+    lines.push("pkgs = " + JSON.stringify(pkgs) + ";");
+    lines.push("cwd = " + JSON.stringify(cwd) + ";");
+    lines.push("user = " + JSON.stringify(user) + ";");
+    lines.push("hist = " + JSON.stringify(hist) + ";");
+    lines.push("saveState();");
+    lines.push("loadInstalled();");
+    lines.push("})();");
+    var txt = lines.join("\n");
+    var fname = args[0] || "session.slux";
+    if (fname.indexOf(".slux") !== fname.length - 5) fname += ".slux";
+    try {
+      var blob = new Blob([txt], { type: "application/octet-stream" });
+      var dl = document.createElement("a");
+      dl.href = URL.createObjectURL(blob);
+      dl.download = fname;
+      document.body.appendChild(dl);
+      dl.click();
+      document.body.removeChild(dl);
+      setTimeout(function () { URL.revokeObjectURL(dl.href); }, 1000);
+      print("exps: downloaded " + fname + " — session " + SID + " (" + txt.length + " bytes: " + dirs.length + " dirs, " + files + " files, " + Object.keys(pkgs).length + " pkgs, " + hist.length + " commands).");
+      print("exps: nothing was stored in the sim — the file now lives only on your device. import it later with: imps " + fname);
+    } catch (e) { err("exps: could not download " + fname + " in this environment"); }
+  },
+  imps: function (args) {
+    var src = args[0];
+    if (src) {
+      if (src.indexOf("://") !== -1) {
+        var url = sluxUrl(src);
+        fetch(url).then(function (r) { if (!r.ok) throw new Error(); return r.text(); }).then(function (txt) {
+          applySession(txt);
+        }).catch(function () { err("imps: could not fetch " + url); });
+        return;
+      }
+      var tgt = norm(resolve(src));
+      if (!exists(tgt) || typeOf(tgt) !== "file") return err("imps: no such session file: " + src + " (export one with exps)");
+      applySession(fs[tgt].data);
+      return;
+    }
+    var picker = document.createElement("input");
+    picker.type = "file";
+    picker.accept = ".slux,application/octet-stream";
+    picker.addEventListener("change", function () {
+      var f = picker.files && picker.files[0];
+      if (!f) return;
+      var rd = new FileReader();
+      rd.onload = function () { applySession(String(rd.result)); };
+      rd.readAsText(f);
+    });
+    picker.click();
+  },
   apk: function (args) {
     var sub = args[0];
     if (!sub) return print("usage: apk update | add <pkg...> | del <pkg...> | search <term> | info <pkg>");
@@ -627,6 +900,35 @@ var CMDS = {
   end: function () { endIt(); }
 };
 
+function runPing(opts, host, ip) {
+  var seq = 0, sent = 0, recv = 0, times = [];
+  var start = Date.now();
+  print("PING " + host + " (" + ip + ") " + opts.size + "(" + (opts.size + 28) + ") bytes of data.");
+  var iv = setInterval(function () {
+    if (seq >= opts.count) {
+      clearInterval(iv);
+      var elapsed = Date.now() - start;
+      var loss = Math.round((sent - recv) / sent * 100);
+      var avg = times.length ? times.reduce(function (a, b) { return a + b; }, 0) / times.length : 0;
+      var mn = times.length ? Math.min.apply(null, times) : 0;
+      var mx = times.length ? Math.max.apply(null, times) : 0;
+      var mdev = times.length ? times.reduce(function (a, b) { return a + Math.abs(b - avg); }, 0) / times.length : 0;
+      print("--- " + host + " ping statistics ---");
+      print(sent + " packets transmitted, " + recv + " received, " + loss + "% packet loss, time " + elapsed + "ms");
+      if (times.length) print("rtt min/avg/max/mdev = " + mn.toFixed(3) + "/" + avg.toFixed(3) + "/" + mx.toFixed(3) + "/" + mdev.toFixed(3) + " ms");
+      return;
+    }
+    seq++;
+    sent++;
+    var drop = Math.random() < 0.03 && sent < opts.count;
+    var t = ip === "127.0.0.1" ? 0.02 + Math.random() * 0.05 : ip === "192.168.86.100" ? 0.3 + Math.random() * 0.8 : 8 + Math.random() * 45;
+    var ttl = ip === "127.0.0.1" || ip === "192.168.86.100" ? 64 : opts.ttl || (Math.random() < 0.5 ? 52 + Math.floor(Math.random() * 12) : 110 + Math.floor(Math.random() * 8));
+    if (!opts.quiet && !drop) print("64 bytes from " + ip + ": icmp_seq=" + seq + " ttl=" + ttl + " time=" + t.toFixed(1) + " ms");
+    else if (!opts.quiet) print("Request timeout for icmp_seq " + seq);
+    if (!drop) { recv++; times.push(t); }
+  }, opts.interval * 1000);
+}
+
 function endIt() {
   print("lunix: the purge is complete. nothing you did here ever happened.");
   print("powering off...");
@@ -639,15 +941,112 @@ function handleCmd(raw) {
   var line = raw.trim();
   if (!line) return;
   hist.push(line);
+  var redir = line.match(/\s*(>>?)\s*(\S+?)\s*$/);
+  var rmode = null, rfile = null;
+  if (redir) {
+    rmode = redir[1];
+    rfile = redir[2];
+    line = line.slice(0, redir.index);
+  }
   var parts = line.split(/\s*&&\s*/);
   for (var i = 0; i < parts.length; i++) {
     var args = parts[i].match(/"[^"]*"|\S+/g) || [];
     var cmd = (args.shift() || "").toLowerCase();
     var clean = [];
     for (var j = 0; j < args.length; j++) clean.push(args[j].replace(/^"|"$/g, ""));
+    var captured = null;
+    if (rmode) {
+      captured = [];
+      outHook = function (h) { captured.push(h); };
+    }
     if (CMDS[cmd]) CMDS[cmd](clean);
     else err(cmd + ": command not found. the void does not know " + cmd + ". try: help");
+    if (rmode) {
+      outHook = null;
+      var text = captured.join("\n").replace(/<[^>]+>/g, "").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&#39;/g, "'").replace(/&quot;/g, '"');
+      var rt = norm(resolve(rfile));
+      if (exists(rt) && typeOf(rt) === "dir") return err(cmd + ": cannot write: " + rfile + " is a directory");
+      if (rmode === ">" || !exists(rt)) fs[rt] = { type: "file", data: text + "\n" };
+      else fs[rt].data += text + "\n";
+      var rp2 = parent(rt);
+      if (fs[rp2] && fs[rp2].kids && fs[rp2].kids.indexOf(leaf(rt)) === -1) fs[rp2].kids.push(leaf(rt));
+      saveState();
+    }
   }
+}
+
+function parseSlux(txt) {
+  var meta = { name: "", desc: "", version: "", bash: [], code: "" };
+  var lines = txt.split(/\r?\n/);
+  var inCode = false;
+  for (var i = 0; i < lines.length; i++) {
+    var ln = lines[i];
+    if (ln.trim() === "#slux code") { inCode = true; continue; }
+    if (ln.indexOf("#slux ") === 0) {
+      var rest = ln.slice(6).trim();
+      var sp = rest.indexOf(" ");
+      var kw = sp === -1 ? rest : rest.slice(0, sp);
+      var val = sp === -1 ? "" : rest.slice(sp + 1).trim();
+      if (kw === "name") meta.name = val;
+      else if (kw === "desc") meta.desc = val;
+      else if (kw === "version") meta.version = val;
+      continue;
+    }
+    if (inCode) meta.code += ln + "\n";
+    else if (ln.trim() && ln.trim().indexOf("#") !== 0) meta.bash.push(ln);
+  }
+  return meta;
+}
+
+function sluxUrl(u) {
+  u = u.trim();
+  if (u.indexOf("http") !== 0) {
+    return "https://raw.githubusercontent.com/OMEGALULUL/LunixOS/tools/" + u + (u.toLowerCase().endsWith(".slux") ? "" : ".slux");
+  }
+  u = u.replace(/^https?:\/\/(www\.)?github\.com\/([^/]+\/[^/]+)\/(blob|raw)\//, "https://raw.githubusercontent.com/$2/");
+  u = u.replace(/^https?:\/\/(www\.)?raw\.githubusercontent\.com\//, "https://raw.githubusercontent.com/");
+  u = u.replace(/^https?:\/\/(www\.)?raw\.github\.com\//, "https://raw.githubusercontent.com/");
+  return u;
+}
+
+function register(name, fn) {
+  CMDS[name] = fn;
+}
+
+function fixState() {
+  if (cwd === "/" || !exists(cwd)) {
+    var h = home();
+    if (!exists(h)) {
+      fs[h] = { type: "dir", kids: [] };
+      if (fs["/home"].kids.indexOf(user) === -1) fs["/home"].kids.push(user);
+    }
+    cwd = h;
+  }
+}
+
+function loadInstalled() {
+  for (var k in fs) {
+    if (k.length > 5 && k.indexOf(".slux") === k.length - 5 && typeOf(k) === "file") {
+      try {
+        var p = parseSlux(fs[k].data);
+        if (p.name && p.code) eval(p.code);
+      } catch (e) {}
+    }
+  }
+}
+
+function applySession(txt) {
+  var meta = parseSlux(txt);
+  if (meta.name !== "session") return err("imps: " + (meta.name || "that file") + " is not a session export (run exps)");
+  for (var i = 0; i < meta.bash.length; i++) {
+    try { handleCmd(meta.bash[i]); } catch (e) {}
+  }
+  try {
+    eval(meta.code);
+  } catch (e) { return err("imps: failed to import session: " + e.message); }
+  promptEl.innerHTML = promptHtml();
+  document.title = "lunix: " + promptPath() + " — LUNIX";
+  print("imps: session " + SID + " imported. welcome back.");
 }
 
 var BOOT_LINES = [
@@ -723,6 +1122,12 @@ input.addEventListener("keydown", function (e) {
       var uname = v.trim() || "lunix";
       print("lunix login: " + (v.trim() || "lunix"));
       user = uname;
+      var hd = home();
+      if (!exists(hd)) {
+        fs[hd] = { type: "dir", kids: [] };
+        if (fs["/home"].kids.indexOf(uname) === -1) fs["/home"].kids.push(uname);
+      }
+      cwd = hd;
       print("Last login: " + new Date().toString() + " on pts/0");
       print(fs["/etc/motd"].data.replace(/\n$/, ""));
       saveState();
@@ -741,6 +1146,19 @@ input.addEventListener("keydown", function (e) {
   }
 });
 body.addEventListener("click", function () { input.focus(); });
+document.addEventListener("click", function (e) {
+  var b = e.target && e.target.closest ? e.target.closest("[data-key]") : null;
+  if (!b) return;
+  e.preventDefault();
+  var k = b.getAttribute("data-key");
+  if (k === "up" && hist.length) {
+    input.value = hist[hist.length - 1];
+    input.setSelectionRange(input.value.length, input.value.length);
+  } else if (k === "enter") {
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+  }
+  input.focus();
+});
 
 var FONT = {
   A: [" ██  ", "█  █ ", "████ ", "█  █ ", "█  █ "],

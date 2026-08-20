@@ -12,11 +12,14 @@ export default {
       "Referrer-Policy": "no-referrer"
     };
 
+    const cors = { "Access-Control-Allow-Origin": "*" };
+
     if (p === "/wisp") {
       return handleWisp(request);
     }
 
     if (p === "/api/bucket") {
+      if (request.method === "OPTIONS") return preflight();
       const listed = await env.LUNIX.list({ prefix: "user/" });
       const files = listed.objects
         .filter((o) => !o.key.endsWith("/"))
@@ -27,22 +30,36 @@ export default {
         }))
         .sort((a, b) => a.name.localeCompare(b.name));
       return new Response(JSON.stringify({ files }), {
-        headers: { "Content-Type": "application/json", ...security, "Cache-Control": "no-store" }
+        headers: { "Content-Type": "application/json", ...cors, ...security, "Cache-Control": "no-store" }
       });
     }
 
     if (p.startsWith("/api/bucket/")) {
+      if (request.method === "OPTIONS") return preflight();
       const raw = p.slice("/api/bucket/".length);
-      if (!raw || raw.includes("/") || raw.includes("..")) {
-        return new Response(JSON.stringify({ error: "bad name" }), { status: 400, headers: { "Content-Type": "application/json" } });
+      const json = (o, status) =>
+        new Response(JSON.stringify(o), { status: status || 200, headers: { "Content-Type": "application/json", ...cors, ...security, "Cache-Control": "no-store" } });
+      if (!raw || raw.includes("/") || raw.includes("..")) return json({ error: "bad name" }, 400);
+
+      if (request.method === "PUT") {
+        await env.LUNIX.put("user/" + raw, request.body);
+        const head = await env.LUNIX.head("user/" + raw);
+        return json({ name: raw, size: head.size });
       }
+
+      if (request.method === "DELETE") {
+        await env.LUNIX.delete("user/" + raw);
+        return json({ deleted: raw });
+      }
+
       const obj = await env.LUNIX.get("user/" + raw);
-      if (!obj) return new Response(JSON.stringify({ error: "not found" }), { status: 404, headers: { "Content-Type": "application/json" } });
+      if (!obj) return json({ error: "not found" }, 404);
       const headers = new Headers(obj.writeHttpMetadata || {});
       headers.set("Content-Type", "application/octet-stream");
       headers.set("Content-Disposition", 'attachment; filename="' + raw.replace(/"/g, "") + '"');
       headers.set("Content-Length", obj.size);
       headers.set("Cache-Control", "no-store");
+      headers.set("Access-Control-Allow-Origin", "*");
       return new Response(obj.body, { headers });
     }
 
@@ -57,12 +74,12 @@ export default {
 
     if (p === "/" || p === "/index.html") p = "/index.html";
     const key = p.slice(1);
-    if (mimes[key]) {
+    if (mimes[key] || key.endsWith(".slux")) {
       const obj = await env.LUNIX.get(key);
       if (!obj) return new Response("not found", { status: 404 });
       const headers = new Headers(obj.writeHttpMetadata || {});
-      headers.set("Content-Type", mimes[key]);
-      headers.set("Cache-Control", key === "index.html" ? "no-cache" : "public, max-age=31536000, immutable");
+      headers.set("Content-Type", mimes[key] || "text/plain; charset=utf-8");
+      headers.set("Cache-Control", key === "index.html" ? "no-cache" : key.endsWith(".slux") ? "public, max-age=300" : "public, max-age=31536000, immutable");
       headers.set("Content-Length", obj.size);
       return new Response(obj.body, { headers });
     }
@@ -70,6 +87,18 @@ export default {
     return new Response("not found", { status: 404, headers: security });
   }
 };
+
+function preflight() {
+  return new Response(null, {
+    status: 204,
+    headers: {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "GET, PUT, DELETE, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type",
+      "Access-Control-Max-Age": "86400"
+    }
+  });
+}
 
 function sendFrame(ws, type, streamId, payload) {
   const pl = payload ? new Uint8Array(payload) : new Uint8Array(0);
