@@ -1,5 +1,7 @@
 # LUNIX
 
+![LUNIX](LUNIX.jpg)
+
 a simulated linux, living entirely in your browser. everything you install dies when the tab closes. no cookies, no disk, no judgement.
 
 **live at:** https://lunix.blueberryservices.co.za
