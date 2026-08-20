@@ -34,11 +34,13 @@ LUNIX is a fully self-contained, dependency-free browser terminal that simulates
 - systemd-style boot sequence (figlet banner, `[    0.000000] [  OK  ]` log lines)
 - `lunix login:` → `Last login:` → `/etc/motd` → bash prompt
 - prompt is a real install's prompt: `user@lunix:~/path$` (green user, blue path, `#` as root)
-- a working virtual filesystem (`ls -l`, `cd`, `cat`, `mkdir`, `touch`, `rm`, `mv`, `cp`, `tree`)
+- a working virtual filesystem (`ls -l`, `cd`, `cat`, `mkdir -p`, `touch`, `rm`, `mv`, `cp`, `tree`)
 - a simulated `apk` package manager with a 21-package index
 - installed tools light up: `cowsay`, `python3`, `git`, `node`, `htop`, `lolcat`, `docker`, `ssh`, `tmux`, `nginx`...
-- `ping`, `curl`, `wget`, `sudo`, `su`, `history`, `&&` chaining, arrow-up history
-- `reboot`, `poweroff`, `end`, `logout`, `exit`
+- `ping` with real DNS resolution (DoH) and authentic RTT statistics, `curl`, `wget`, `sudo`, `su`, `history`, `&&` chaining, arrow-up history
+- `>` / `>>` redirection, `reboot`, `poweroff`, `end`, `logout`, `exit`
+- device-first sessions: `exps` downloads the whole session to your machine, `imps` imports it back from a file picker — nothing is stored
+- mobile support: on-screen keys, no iOS zoom, touch-safe layout
 
 the aesthetic is the ZTNA portfolio's dark bash theme: `#000` background, `#c9c9c9` text, Ubuntu green `#4e9a06`, blue `#729fcf`, orange accent `#e95420`, Consolas / Cascadia Mono / Ubuntu Mono.
 
@@ -72,12 +74,15 @@ the aesthetic is the ZTNA portfolio's dark bash theme: `#000` background, `#c9c9
 
 | area | commands |
 |---|---|
-| files | `ls [-l]`, `cd`, `pwd`, `cat`, `echo`, `mkdir`, `touch`, `rm [-rf]`, `mv`, `cp`, `tree` |
+| files | `ls [-l]`, `cd`, `pwd`, `cat`, `echo`, `mkdir [-p]`, `touch`, `rm [-rf]`, `mv`, `cp`, `tree` |
 | system | `whoami`, `id`, `uname [-a -r -m]`, `hostname`, `uptime`, `date`, `free`, `history`, `clear` |
 | packages | `apk update`, `apk add <pkg...>`, `apk del <pkg>`, `apk search <term>`, `apk info <pkg>` |
-| network | `ping <host>`, `curl <url>`, `wget` |
+| network | `ping [-c -i -s -t -W -q] <host>` (real DNS via DoH), `curl <url>`, `wget` |
 | auth | `sudo`, `su root`, `login` |
 | lifecycle | `logout`, `exit`, `reboot`, `poweroff`, `end` |
+| storage | `save down [<name>]`, `save up <file>`, `save rm <name>`, `save du` |
+| tools | `download <link|name>`, `download list`, `download rm <name>` |
+| sessions | `exps` — download the whole session as `session.slux` · `imps` — pick a `.slux` from your device to restore it |
 | tools (after `apk add`) | `cowsay`, `python3`, `git`, `node`, `htop`, `lolcat`, `docker`, `ssh`, `tmux`, `fish`, `zsh`, `bash`, `nginx`, `jq`, `neovim`, `vim`, `ripgrep`, `tree`, `openssh` |
 
 quick start:
@@ -86,8 +91,9 @@ quick start:
 lunix login: lunix
 lunix@lunix:~$ apk add cowsay && cowsay moo
 lunix@lunix:~$ apk add lolcat && lolcat hi
-lunix@lunix:~$ mkdir tools && cd tools && pwd
-lunix@lunix:~$ sudo rm -rf /
+lunix@lunix:~$ mkdir -p projects/web && cd projects && pwd
+lunix@lunix:~$ ping -c 4 github.com     # real DNS, real-looking rtt stats
+lunix@lunix:~$ exps                      # downloads session.slux to your device
 lunix@lunix:~$ poweroff      # purges everything
 ```
 
@@ -95,29 +101,45 @@ lunix@lunix:~$ poweroff      # purges everything
 
 status: `done` · `next` (being worked on now) · `planned`
 
-### storage — the r2 bucket (next)
+### storage — the r2 bucket (done)
 
 the sim talks to the bucket through the worker api — see [storage](#storage--the-r2-bucket).
 
 | command | what it does | status |
 |---|---|---|
-| `save down` | list files in the bucket | next |
-| `save down <name>` | download a bucket file into the virtual filesystem | next |
-| `save up <file>` | upload a virtual file to the bucket | planned |
-| `save rm <name>` | delete a file from the bucket | planned |
-| `save du` | show bucket usage | planned |
+| `save down` | list files in the bucket | done |
+| `save down <name>` | download a bucket file into the virtual filesystem | done |
+| `save up <file>` | upload a virtual file to the bucket | done |
+| `save rm <name>` | delete a file from the bucket | done |
+| `save du` | show bucket usage | done |
 | `man save` | manual page for the save commands | planned |
+
+### sessions — export & import (done)
+
+the whole session is a single `.slux` file. `exps` snapshots the virtual filesystem (files, directories, installed tools in `/usr/bin`, apk packages, cwd, user, history) and **downloads it to your device** as a `session.slux`. nothing is written to the sim, the bucket, or github — the export lives only where you put it. `imps` opens a file picker to choose that `.slux` from your device (or takes a virtual-fs path / raw link) and rebuilds everything.
+
+```
+lunix@lunix:~$ exps                    # downloads session.slux to your device
+lunix@lunix:~$ imps                    # file picker → select the session.slux
+```
+
+| command | what it does | status |
+|---|---|---|
+| `exps [file]` | download the current session as a `.slux` file (default `session.slux`) — device-only, nothing stored | done |
+| `imps` | open a file picker and import a `.slux` from your device — restores files, pkgs, tools, cwd, history | done |
+| `imps <file>` | import a `session.slux` from the virtual filesystem | done |
+| `imps <url>` | import from a direct/raw link | done |
 
 ### network & security
 
 | command | what it does | status |
 |---|---|---|
-| `nmap [-sV] [-sn] [-p <ports>] <host>` | scan the sim's internet — the sim answers: host up, the usual ports open | planned |
+| `ping [-c -i -s -t -W -q] <host>` | real ping: resolves hostnames via DoH (dns.google), progressive replies, ttl, ~3% loss, `rtt min/avg/max/mdev` — sim hosts (`lunix`, `localhost`) are instant | done |
+| `nmap [-sV] [-sn] [-p <ports>] <host>` | scan the sim's internet — the sim answers: host up, the usual ports open (install via `download nmap`) | done |
 | `dig <name> [<type>]` | real dns lookups via 1.1.1.1 (DoH), like the portfolio terminal | planned |
 | `iptables -L` | show the gate as firewall rules (the mTLS zero-trust story) | planned |
 | `connect` | show this session's identity and badge state | planned |
 | `ip addr` / `hostname -I` | the sim's network card: 192.168.86.100/24, latency 0ms | planned |
-| `ping <host>` | already exists — upgrade to a real latency probe against the live site | planned |
 
 ### system
 
@@ -153,21 +175,70 @@ want a command added? it's a few lines in the `CMDS` map — see [customizing](#
 
 ## storage — the r2 bucket
 
-the 10GB R2 bucket is the sim's external storage. files uploaded under the `user/` prefix are downloadable through the worker api. currently a test file is there: `user/test_download.txt`.
+the 10GB R2 bucket is the sim's external storage. files uploaded under the `user/` prefix are downloadable through the worker api — and survive the purge. the `save` family in the terminal drives it all:
 
-the worker exposes (all behind the `lunix` worker):
+```
+lunix@lunix:~$ echo "this survives the tab" > notes.txt
+lunix@lunix:~$ save up notes.txt
+lunix@lunix:~$ save down           # list
+lunix@lunix:~$ save down notes.txt # write into the virtual fs
+lunix@lunix:~$ save du             # usage
+lunix@lunix:~$ save rm notes.txt
+```
+
+the worker exposes (all behind the `lunix` worker, CORS-open so it works from GitHub Pages too):
 
 | endpoint | purpose |
 |---|---|
 | `GET /api/bucket` | list downloadable files: `{"files":[{"name","size","modified"}]}` |
 | `GET /api/bucket/<name>` | download file bytes (`Content-Disposition: attachment`) |
-
-a download command inside the terminal is the next feature — it will fetch the list, let you pick a file, fetch the bytes, and write them into the virtual filesystem.
+| `PUT /api/bucket/<name>` | upload file bytes (body = file content) |
+| `DELETE /api/bucket/<name>` | delete the file |
 
 notes:
 - names are flat (no `/`), path traversal is rejected with 400
 - static assets (iso, bios, wasm) live outside `user/` so they never show in the list
 - the bucket is currently public-read through the worker — fine for a demo; gate it behind the mTLS badge if you want it locked like `save://`
+
+## tools & the .slux format
+
+tools are tiny programs you download into the virtual memory. they are hosted in the **`tools` branch** of this repo, one `.slux` file per tool, and installed with:
+
+```
+lunix@lunix:~$ download list                          # what's on the tools branch
+lunix@lunix:~$ download nmap                          # installs from the tools branch
+lunix@lunix:~$ download https://github.com/OMEGALULUL/LunixOS/blob/tools/nmap.slux
+lunix@lunix:~$ nmap -sV 192.168.86.100                # the tool now works
+lunix@lunix:~$ download rm nmap                       # uninstall
+```
+
+- `download <name>` defaults to `raw.githubusercontent.com/OMEGALULUL/LunixOS/tools/<name>.slux`
+- any github blob/raw link works; the tool is parsed, its bash section runs in the sim, and its code registers the command
+- the `.slux` file is stored at `/usr/bin/<name>.slux` — it survives a refresh (sessionStorage) and is re-loaded at boot. the purge still wipes it. re-downloading recreates everything.
+- the tools branch also carries a `TOOLS.md` describing the format and how to add your own tool
+
+### the .slux format
+
+```slux
+#slux name nmap
+#slux desc "scan the simulated internet"
+#slux version 1.0.0
+
+# bash section — ordinary LUNIX bash, executed on install
+mkdir -p /usr/bin
+echo "a note" > /usr/bin/nmap.README.txt
+
+#slux code
+register("nmap", function (args) {
+  print("Nmap scan report for " + (args[0] || "you"));
+});
+```
+
+meta header: `#slux name|desc|version`. the bash section can use any sim command (including `>` redirection and `mkdir -p`) to create files, install apk deps, etc. the code section has access to the sim's globals (`print`, `err`, `printHtml`, `fs`, `pkgs`, `esc`, `CMDS`...) and must call `register("<name>", function (args) {...})`.
+
+the first tool on the branch is a full traditional `nmap` — `-sV`, `-sn`, `-sS`, `-O`, `-A`, port ranges, `-oN/-oG/-oX` output files, seeded results, and it writes its reports into the virtual fs.
+
+tools also deploy to the R2 bucket under `tools/` so they can be fetched from the LUNIX domain itself.
 
 ## session lifecycle & the purge
 
@@ -184,8 +255,9 @@ notes:
 lunix/
 ├── index.html          ← the entire app. copy this anywhere, it runs.
 ├── README.md
+├── tools/              ← .slux tool definitions + TOOLS.md (upload these to the `tools` branch)
 └── worker/             ← optional cloudflare layer
-    ├── index.js        ← worker source (static + /api/bucket + wisp relay)
+    ├── index.js        ← worker source (static + /api/bucket + .slux + wisp relay)
     └── wrangler.jsonc  ← worker config (R2 binding "LUNIX")
 ```
 
@@ -248,6 +320,18 @@ curl https://lunix.blueberryservices.co.za/api/bucket
 
 ```sh
 curl -OJ https://lunix.blueberryservices.co.za/api/bucket/test_download.txt
+```
+
+**upload**
+
+```sh
+curl -X PUT --data-binary @notes.txt https://lunix.blueberryservices.co.za/api/bucket/notes.txt
+```
+
+**delete**
+
+```sh
+curl -X DELETE https://lunix.blueberryservices.co.za/api/bucket/notes.txt
 ```
 
 ## customizing
