@@ -2,7 +2,7 @@
 
 ![LUNIX](LUNIX.jpg)
 
-a simulated linux, living entirely in your browser. everything you install dies when the tab closes. no cookies, no disk, no judgement.
+a simulated linux, living entirely in your browser. everything you install dies when the tab closes. no cookies, no disk, no judgement. clone it, point it at your own bucket and domain — it's one html file and an optional worker, so companies can run their own instance behind their own name.
 
 **live at:** https://lunix.blueberryservices.co.za
 
@@ -17,13 +17,14 @@ a simulated linux, living entirely in your browser. everything you install dies 
 5. [storage — the r2 bucket](#storage--the-r2-bucket)
 6. [session lifecycle & the purge](#session-lifecycle--the-purge)
 7. [project layout](#project-layout)
-8. [run it from scratch](#run-it-from-scratch)
+8. [run it from scratch — your bucket, your domain](#run-it-from-scratch--your-bucket-your-domain)
    - [local — zero setup](#local--zero-setup)
-   - [github pages](#github-pages)
-   - [cloudflare worker + r2 + domain](#cloudflare-worker--r2--domain)
+   - [github pages — static hosting](#github-pages--static-hosting)
+   - [cloudflare worker + r2 + your domain — the full install](#cloudflare-worker--r2--your-domain--the-full-install)
 9. [the worker api](#the-worker-api)
 10. [customizing](#customizing)
 11. [why simulated, not a real vm](#why-simulated-not-a-real-vm)
+12. [license & credits](#license--credits)
 
 ---
 
@@ -39,7 +40,8 @@ LUNIX is a fully self-contained, dependency-free browser terminal that simulates
 - installed tools light up: `cowsay`, `python3`, `git`, `node`, `htop`, `lolcat`, `docker`, `ssh`, `tmux`, `nginx`...
 - `ping` with real DNS resolution (DoH) and authentic RTT statistics, `curl`, `wget`, `sudo`, `su`, `history`, `&&` chaining, arrow-up history
 - `>` / `>>` redirection, `reboot`, `poweroff`, `end`, `logout`, `exit`
-- device-first sessions: `exps` downloads the whole session to your machine, `imps` imports it back from a file picker — nothing is stored
+- device-first sessions: `exps` downloads the whole session to your machine, `imps` imports it back from a file picker — nothing is stored. `exps lock` seals the archive behind a password (pbkdf2 + aes-gcm), so even the file on your desktop is closed until you say otherwise
+- device-first audio: `music` plays from the bucket or any url, `music imps` streams audio straight off your device — nothing is uploaded
 - mobile support: on-screen keys, no iOS zoom, touch-safe layout
 
 the aesthetic is the ZTNA portfolio's dark bash theme: `#000` background, `#c9c9c9` text, Ubuntu green `#4e9a06`, blue `#729fcf`, orange accent `#e95420`, Consolas / Cascadia Mono / Ubuntu Mono.
@@ -82,7 +84,8 @@ the aesthetic is the ZTNA portfolio's dark bash theme: `#000` background, `#c9c9
 | lifecycle | `logout`, `exit`, `reboot`, `poweroff`, `end` |
 | storage | `save down [<name>]`, `save up <file>`, `save rm <name>`, `save du` |
 | tools | `download <link|name>`, `download list`, `download rm <name>` |
-| sessions | `exps` — download the whole session as `session.slux` · `imps` — pick a `.slux` from your device to restore it |
+| media | `music <song>` — play audio from the bucket or a url · `music imps` — pick audio off your device and play it · `music stop` — stop (mp3, wav, ogg, m4a, aac, flac, opus, webm) |
+| sessions | `exps [lock]` — download the whole session + your bucket media as one `lunix-session.zip` (`lock` seals it behind a password) · `imps` — pick a `.slux` or `.zip` from your device to restore it |
 | tools (after `apk add`) | `cowsay`, `python3`, `git`, `node`, `htop`, `lolcat`, `docker`, `ssh`, `tmux`, `fish`, `zsh`, `bash`, `nginx`, `jq`, `neovim`, `vim`, `ripgrep`, `tree`, `openssh` |
 
 quick start:
@@ -93,7 +96,7 @@ lunix@lunix:~$ apk add cowsay && cowsay moo
 lunix@lunix:~$ apk add lolcat && lolcat hi
 lunix@lunix:~$ mkdir -p projects/web && cd projects && pwd
 lunix@lunix:~$ ping -c 4 github.com     # real DNS, real-looking rtt stats
-lunix@lunix:~$ exps                      # downloads session.slux to your device
+lunix@lunix:~$ exps                      # downloads lunix-session.zip to your device
 lunix@lunix:~$ poweroff      # purges everything
 ```
 
@@ -116,19 +119,59 @@ the sim talks to the bucket through the worker api — see [storage](#storage--t
 
 ### sessions — export & import (done)
 
-the whole session is a single `.slux` file. `exps` snapshots the virtual filesystem (files, directories, installed tools in `/usr/bin`, apk packages, cwd, user, history) and **downloads it to your device** as a `session.slux`. nothing is written to the sim, the bucket, or github — the export lives only where you put it. `imps` opens a file picker to choose that `.slux` from your device (or takes a virtual-fs path / raw link) and rebuilds everything.
+the whole session is a single `.slux` file — and `exps` wraps it (plus everything in the bucket) into one **`lunix-session.zip`** that downloads to your device: the virtual filesystem (files, directories, installed tools in `/usr/bin`, apk packages, cwd, user, history) as `session.slux`, and your bucket media (mp3/wav/ogg/m4a/aac/flac/opus/webm) under `media/`. the zip's `session.slux` carries a manifest of the bundled media, so imports know exactly what's inside. after a successful download the bundled **audio files are cleared from the bucket** — the archive on your device is the only copy, until `imps` puts them back. nothing is written to the sim or github.
 
 ```
-lunix@lunix:~$ exps                    # downloads session.slux to your device
-lunix@lunix:~$ imps                    # file picker → select the session.slux
+lunix@lunix:~$ exps                    # downloads lunix-session.zip (session + your songs)
+lunix@lunix:~$ exps lock               # sealed archive — prompts for the password (hidden, twice)
+lunix@lunix:~$ exps lock hunter2       # sealed archive — password taken from the command line
+lunix@lunix:~$ imps                    # file picker → select the zip → session + media restored
 ```
 
 | command | what it does | status |
 |---|---|---|
-| `exps [file]` | download the current session as a `.slux` file (default `session.slux`) — device-only, nothing stored | done |
-| `imps` | open a file picker and import a `.slux` from your device — restores files, pkgs, tools, cwd, history | done |
+| `exps [file]` | download the current session + bucket media as a `.zip` (default `lunix-session.zip`) — device-only; bundled audio is then cleared from the bucket | done |
+| `exps lock [file]` | same export, sealed behind a password — typed twice with hidden input | done |
+| `exps lock <password> [file]` | one-shot locked export: the password comes straight from the command line (note: it lands in your session history) | done |
+| `imps` | open a file picker and import a `.slux`/`.zip` — restores files, pkgs, tools, cwd, history, and re-uploads media. locked archives ask for the password first | done |
 | `imps <file>` | import a `session.slux` from the virtual filesystem | done |
-| `imps <url>` | import from a direct/raw link | done |
+| `imps <url>` | import from a direct/raw link (.slux or .zip) | done |
+
+the zip is built in the browser (store-method zip, no dependencies) — comfortably handles a normal session plus hundreds of songs; multi-gig archives are beyond browser memory, so giant media keeps the straight-to-device download path instead.
+
+#### the lock
+
+`exps lock` is for when the archive outlives the tab: a zip on your desktop, in a sync folder, on a usb stick. unlocked exports are plain files anyone can read; locked exports are sealed.
+
+- **crypto:** pbkdf2-hmac-sha256 (200,000 iterations) derives a 256-bit aes-gcm key from the password; every entry gets a fresh random 96-bit iv and its own authentication tag
+- **format:** each zip entry is renamed `<name>.locked` and its bytes replaced by an envelope — `SLXLOCK1` magic · version · 16-byte salt · iv · ciphertext. it's still a normal zip; every byte inside it is just sealed
+- **import:** `imps` detects the envelope, prompts for the password (input hidden), and decrypts in place. a wrong password fails gcm authentication — no partial restore, no hint about the content
+- **zero dependencies:** all of it is the browser's native WebCrypto — nothing is sent anywhere, the password never leaves the tab, and it never touches sessionStorage or history
+- **needs a secure context** (https, or opening `index.html` locally as `file://`) — plain http has no WebCrypto and the sim tells you so
+
+### music
+
+`music <song>` plays audio files straight from the bucket (or any url) through a hidden `<audio>` element — only audio extensions are accepted, `music stop` silences it. `music imps` opens a file picker: pick any audio file from your device and it streams straight off disk via an object url — nothing is uploaded, nothing is stored, the purge never even notices.
+
+```
+lunix@lunix:~$ music song.mp3          # plays from the bucket
+lunix@lunix:~$ music stop
+lunix@lunix:~$ music https://example.com/radio.ogg
+lunix@lunix:~$ music imps              # file picker → play audio from your device
+```
+
+| command | what it does | status |
+|---|---|---|
+| `music <song>` | play an audio file from the bucket (`save up` it first) or any direct url | done |
+| `music imps` | open the device file picker and stream the picked audio straight off disk via an object url — device-only, nothing is uploaded or stored | done |
+| `music stop` | stop playback and release the audio (object urls are revoked too) | done |
+
+accepted formats: **mp3, wav, ogg, oga, m4a, aac, flac, opus, webm** — the extension is the gate; actual decoding is up to the browser's `<audio>` element. playback errors tell you which case you hit: not-an-audio-file, missing-from-bucket, or a format your browser can't decode.
+
+notes:
+- `music imps` works fully offline — no bucket, no network, no session token
+- picking a new file with `music imps` replaces what's playing and revokes the previous object url
+- big files are fine here: unlike the virtual filesystem (~5–10 MB sessionStorage cap), device playback streams from disk, so multi-hundred-MB flacs just work
 
 ### network & security
 
@@ -186,19 +229,45 @@ lunix@lunix:~$ save du             # usage
 lunix@lunix:~$ save rm notes.txt
 ```
 
-the worker exposes (all behind the `lunix` worker, CORS-open so it works from GitHub Pages too):
+the worker exposes (all behind the `lunix` worker; the bucket API is hardened):
 
-| endpoint | purpose |
-|---|---|
-| `GET /api/bucket` | list downloadable files: `{"files":[{"name","size","modified"}]}` |
-| `GET /api/bucket/<name>` | download file bytes (`Content-Disposition: attachment`) |
-| `PUT /api/bucket/<name>` | upload file bytes (body = file content) |
-| `DELETE /api/bucket/<name>` | delete the file |
+| endpoint | purpose | access |
+|---|---|---|
+| `GET /api/bucket` | list downloadable files: `{"files":[{"name","size","modified"}]}` | requires `X-Lunix-Session` token + trusted origin |
+| `GET /api/bucket/<name>` | download file bytes (`Content-Disposition: attachment`) | trusted origin (token not required so saved links work) |
+| `PUT /api/bucket/<name>` | upload file bytes (body = file content) | requires token + trusted origin; max 2.5 GiB |
+| `DELETE /api/bucket/<name>` | delete the file | requires token + trusted origin |
+
+hardening:
+- **origin allowlist** — requests with an `Origin` header are only accepted from origins in `ALLOWED_ORIGINS` (`worker/index.js`; this deployment allows `https://lunix.blueberryservices.co.za`, plus `null` for local `file://` dev). self-hosting? put your own domain there. other websites can't read, write, or delete your bucket files, even with a valid token
+- **per-session token** — the shell sends its session id (`X-Lunix-Session`) on list/upload/delete; unknown or malformed tokens get `401`
+- **method lock** — only `GET`/`PUT`/`DELETE`/`OPTIONS`; anything else is `405`
+- **size cap** — uploads over 2.5 GiB are rejected (`413`)
+- **security headers** on every response: `X-Frame-Options: DENY`, `nosniff`, COOP/COEP, no-referrer
+- path traversal (`/`, `..`) in file names is rejected with `400`
+
+### wids — sensor ingest (pocketwids pipeline)
+
+telemetry from the M5Stick PocketWIDS wireless IDS sensor lands in R2 as jsonl and is read by the `wids` tool inside the sim:
+
+| endpoint | purpose | access |
+|---|---|---|
+| `POST /api/wids` | append one sensor event (json body) | requires `X-Wids-Key` header matching the `WIDS_KEY` worker secret |
+| `GET /api/wids?limit=N&type=T` | read recent events, newest first | trusted origin (same-origin from the sim) |
+
+- events are capped at 1000 (oldest trimmed); each is `{type, detail, channel, rssi, sensor, ts}`
+- deploy the secret once: `npx wrangler secret put WIDS_KEY`
+- install the reader tool in the sim: `download wids`, then `wids log` / `wids status`
+
+large files:
+- the virtual filesystem lives in `sessionStorage` (~5–10 MB per origin), so anything over 2 MiB can't live *inside* the sim
+- `save down` detects that: files over 2 MiB are downloaded **straight to your device** (native browser download) instead of into the virtual memory; if a small file still doesn't fit, it falls back to the same device download
+- note: the cloudflare **free** workers plan caps request bodies (~100 MB; ~500 MB paid), so an upload that big through the worker needs a paid plan or a direct R2 (S3) upload — the API-side cap is 2.5 GiB either way
 
 notes:
 - names are flat (no `/`), path traversal is rejected with 400
 - static assets (iso, bios, wasm) live outside `user/` so they never show in the list
-- the bucket is currently public-read through the worker — fine for a demo; gate it behind the mTLS badge if you want it locked like `save://`
+- the bucket is currently public-read through the worker for downloads — the read path is origin-gated; gate it fully behind the mTLS badge if you want it locked like `save://`
 
 ## tools & the .slux format
 
@@ -214,6 +283,7 @@ lunix@lunix:~$ download rm nmap                       # uninstall
 
 - `download <name>` defaults to `raw.githubusercontent.com/OMEGALULUL/LunixOS/tools/<name>.slux`
 - any github blob/raw link works; the tool is parsed, its bash section runs in the sim, and its code registers the command
+- **safety:** anything outside the official tools branch triggers a warning and a confirmation dialog — a `.slux` is executable code that can read your files, history, and storage bucket, so only install from sources you trust
 - the `.slux` file is stored at `/usr/bin/<name>.slux` — it survives a refresh (sessionStorage) and is re-loaded at boot. the purge still wipes it. re-downloading recreates everything.
 - the tools branch also carries a `TOOLS.md` describing the format and how to add your own tool
 
@@ -255,13 +325,26 @@ tools also deploy to the R2 bucket under `tools/` so they can be fetched from th
 lunix/
 ├── index.html          ← the entire app. copy this anywhere, it runs.
 ├── README.md
+├── LICENSE             ← MIT, © 2026 Blueberry Services
+├── LUNIX.jpg
 ├── tools/              ← .slux tool definitions + TOOLS.md (upload these to the `tools` branch)
 └── worker/             ← optional cloudflare layer
-    ├── index.js        ← worker source (static + /api/bucket + .slux + wisp relay)
+    ├── index.js        ← worker source (static + /api/bucket + /api/wids + .slux + wisp relay)
     └── wrangler.jsonc  ← worker config (R2 binding "LUNIX")
 ```
 
-## run it from scratch
+## run it from scratch — your bucket, your domain
+
+LUNIX is fully self-hostable: one `index.html` plus an optional cloudflare worker. nothing phones home to us — companies can clone this repo and run the whole thing (terminal, storage api, tools) on their own cloudflare account, their own r2 bucket, and their own domain.
+
+### what to point at your own stuff
+
+| file | setting | why |
+|---|---|---|
+| `worker/index.js` | `ALLOWED_ORIGINS` | add your origin (`https://lunix.yourcompany.com`) — only listed origins may call the storage/wids apis |
+| `index.html` | `var API = ...` | the fallback api base used when the sim is opened from `file://`; set it to your deployment url |
+| `worker/wrangler.jsonc` | `"name"`, `"bucket_name"` | your worker's name and your r2 bucket |
+| `index.html` | `/etc/motd`, `/etc/os-release`, `BOOT_LINES`, theme vars | branding — make it yours |
 
 ### local — zero setup
 
@@ -269,32 +352,43 @@ lunix/
 open index.html        # that's it. works from any browser
 ```
 
-### github pages
+runs fully offline except features that need the bucket api (`save`, `music <song>` from a bucket, `exps` media bundling). `music imps`, locked exports, and every filesystem command work with no server at all.
+
+### github pages — static hosting
 
 1. create a repo (e.g. `lunix`) and push `index.html` to the root
 2. repo → settings → pages → deploy from branch `main` / root
 3. it's live at `https://<you>.github.io/lunix`
 
-### cloudflare worker + r2 + domain
+this mode has no storage api (pages serve files, they don't run the worker). everything else works; set `var API` in `index.html` to a deployed worker somewhere if you still want `save`/bucket music.
+
+### cloudflare worker + r2 + your domain — the full install
 
 prereqs: a cloudflare account + zone, wrangler authenticated (`npx wrangler login`, or `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` env vars).
 
 ```sh
-# 1. create the bucket
+# 0. point the code at your domain first:
+#    - worker/index.js  → ALLOWED_ORIGINS: add "https://lunix.yourcompany.com"
+#    - index.html       → var API fallback: "https://lunix.yourcompany.com"
+
+# 1. create your bucket
 npx wrangler r2 bucket create lunix
 
-# 2. upload the app + assets (optional: v86 assets for the real-vm revival)
+# 2. upload the app (+ optional v86 assets for the real-vm revival)
 npx wrangler r2 object put lunix/index.html --file index.html --remote
 npx wrangler r2 object put lunix/user/test_download.txt --file test.txt --remote
 
 # 3. deploy the worker
 cd worker
 npx wrangler deploy
-# → https://lunix.<subdomain>.workers.dev
+# → https://lunix.<your-subdomain>.workers.dev
 
-# 4. custom domain (two API calls — replace zone id / hostname / script name)
-#    dns:  CNAME lunix → lunix.<subdomain>.workers.dev  (proxied)
-#    zone route:  pattern "lunix.<your-zone>/*" → script "lunix"
+# 4. your domain (two calls — replace zone id / hostname / script name)
+#    dns:  CNAME lunix.yourcompany.com → lunix.<your-subdomain>.workers.dev  (proxied)
+#    zone route:  pattern "lunix.yourcompany.com/*" → script "lunix"
+
+# 5. optional — the wids sensor ingest secret (only if you use PocketWIDS)
+npx wrangler secret put WIDS_KEY
 ```
 
 the worker serves:
@@ -305,18 +399,24 @@ the worker serves:
 | `/v86.js` `/v86.wasm` `/alpine.iso` `/bios/*` | cached immutable assets (real-vm revival) |
 | `/api/bucket` | bucket file list |
 | `/api/bucket/<name>` | bucket file download |
+| `/api/wids` | PocketWIDS sensor event feed (read) / ingest (write, needs key) |
 | `/wisp` | websocket relay (real-vm revival, needs workers paid) |
+
+notes for deployments:
+- **data stays yours** — uploads land in *your* r2 bucket, under your account's controls and region policy; the sim itself stores nothing server-side
+- **the session token is per-tab** (`X-Lunix-Session`) and only gates list/upload/delete; downloads are origin-gated so saved links keep working
+- **air-gapped-ish mode:** serve `index.html` from any static file server (s3, nginx, an intranet share) — users get the full terminal with zero calls to our infrastructure (note: `ping`, `curl`, and url-based `music` still reach the internet by design; on a closed network they just fail like they would on a real box)
 
 ## the worker api
 
 **list**
 
 ```sh
-curl https://lunix.blueberryservices.co.za/api/bucket
+curl -H "X-Lunix-Session: <session-id>" https://lunix.blueberryservices.co.za/api/bucket
 # {"files":[{"name":"test_download.txt","size":27,"modified":"2026-08-19T16:15:38.780Z"}]}
 ```
 
-**download**
+**download** (no token needed)
 
 ```sh
 curl -OJ https://lunix.blueberryservices.co.za/api/bucket/test_download.txt
@@ -325,13 +425,16 @@ curl -OJ https://lunix.blueberryservices.co.za/api/bucket/test_download.txt
 **upload**
 
 ```sh
-curl -X PUT --data-binary @notes.txt https://lunix.blueberryservices.co.za/api/bucket/notes.txt
+curl -X PUT --data-binary @notes.txt \
+  -H "X-Lunix-Session: <session-id>" \
+  https://lunix.blueberryservices.co.za/api/bucket/notes.txt
 ```
 
 **delete**
 
 ```sh
-curl -X DELETE https://lunix.blueberryservices.co.za/api/bucket/notes.txt
+curl -X DELETE -H "X-Lunix-Session: <session-id>" \
+  https://lunix.blueberryservices.co.za/api/bucket/notes.txt
 ```
 
 ## customizing
@@ -353,3 +456,9 @@ originally LUNIX was planned as a real v86 VM booting Alpine (270MB ISO, staged 
 ---
 
 LUNIX is a demo/portfolio piece — the point is that the purge is always watching.
+
+## license & credits
+
+MIT — see [LICENSE](LICENSE). companies and individuals are free to use, modify, self-host, and ship LUNIX (including commercially); the only ask is keeping the copyright notice. no warranty, no strings.
+
+built by **chris visser** at **blueberry services** — the purge daemon is always watching.

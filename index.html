@@ -86,6 +86,7 @@
   .u { color: var(--green); font-weight: 700; }
   .p { color: var(--blue); font-weight: 700; }
   .dim { color: var(--dim); }
+  .warn { color: #ff8c00; font-weight: bold; }
   .accent { color: var(--accent); }
   .blue { color: var(--blue); font-weight: 700; }
   .green { color: var(--green); }
@@ -161,6 +162,7 @@
 <script>
 "use strict";
 var SID = (Math.random().toString(36).slice(2, 8) + Math.random().toString(36).slice(2, 6)).toUpperCase();
+var API = location.protocol === "file:" ? "https://lunix.blueberryservices.co.za" : "";
 var body = document.getElementById("vt-body");
 var input = document.getElementById("vt-input");
 var promptEl = document.getElementById("vt-prompt");
@@ -308,8 +310,9 @@ var CMDS = {
       "&nbsp;&nbsp;<span class='accent'>sudo</span>&nbsp;&nbsp;<span class='accent'>su</span>&nbsp;&nbsp;<span class='accent'>exit</span>&nbsp;&nbsp;<span class='accent'>reboot</span>&nbsp;&nbsp;<span class='accent'>poweroff</span>&nbsp;&nbsp;<span class='accent'>end</span><br>" +
       "&nbsp;&nbsp;<span class='accent'>save down|up|rm|du</span> — the bucket survives the purge<br>" +
       "&nbsp;&nbsp;<span class='accent'>download</span> &lt;link|name&gt; — install tools from github into the virtual memory<br>" +
-      "&nbsp;&nbsp;<span class='accent'>exps</span> — export this whole session as a session.slux (files, pkgs, tools, history)<br>" +
-      "&nbsp;&nbsp;<span class='accent'>imps</span> [file] — import a session.slux and bring a previous session back to life<br>" +
+      "&nbsp;&nbsp;<span class='accent'>exps</span> [lock [password]] [name] — export this session + bucket media as a zip; add <span class='accent'>lock</span> to seal it (password prompted, or typed inline)<br>" +
+      "&nbsp;&nbsp;<span class='accent'>imps</span> [file] — pick a session.slux or zip and bring a previous session back to life (locked archives ask for the password)<br>" +
+      "&nbsp;&nbsp;<span class='accent'>music</span> &lt;song&gt;|imps|stop — play audio from the bucket, a url, or straight off your device (mp3, wav, ogg, m4a, aac, flac, opus, webm)<br>" +
       "installed tools light up: <span class='accent'>cowsay</span> <span class='accent'>python3</span> <span class='accent'>git</span> <span class='accent'>node</span> <span class='accent'>htop</span> <span class='accent'>lolcat</span> <span class='accent'>docker</span> ...");
   },
   clear: function () { body.innerHTML = ""; },
@@ -550,7 +553,6 @@ boot();
   },
   wget: function () { print("wget: this is curl's 90s cousin. use curl. or do not. both fake."); },
   save: function (args) {
-    var API = location.protocol === "file:" ? "https://lunix.blueberryservices.co.za" : "";
     var sub = args[0];
     var bad = function (n) { return n.indexOf("/") !== -1 || n.indexOf("..") !== -1; };
     var fmt = function (b) {
@@ -561,7 +563,7 @@ boot();
     var onerr = function () { err("save: the cloud is unreachable. the purge is still patient."); };
     if (!sub) return print("usage: save down [<name>] | up <file> | rm <name> | du");
     if (sub === "down" && !args[1]) {
-      fetch(API + "/api/bucket").then(function (r) { return r.json(); }).then(function (d) {
+      fetch(API + "/api/bucket", { headers: bk() }).then(function (r) { return r.json(); }).then(function (d) {
         if (!d.files || !d.files.length) return print("save: the bucket is empty. nothing survives the purge. yet.");
         printHtml("files in the bucket — they outlive the tab:<br>");
         for (var i = 0; i < d.files.length; i++) {
@@ -573,18 +575,49 @@ boot();
     if (sub === "down") {
       var n = args[1];
       if (bad(n)) return err("save down: invalid name (no / or ..)");
-      fetch(API + "/api/bucket/" + encodeURIComponent(n)).then(function (r) {
-        if (r.status === 404) { err("save down: no such file in the bucket: " + n); return null; }
-        return r.text();
-      }).then(function (data) {
-        if (data === null) return;
+      var deviceDownload = function (url) {
+        try {
+          var dl = document.createElement("a");
+          dl.href = url;
+          dl.download = n;
+          document.body.appendChild(dl);
+          dl.click();
+          document.body.removeChild(dl);
+          return true;
+        } catch (e) { return false; }
+      };
+      var writeSmall = function (data) {
         var tgt = norm(resolve(n));
         fs[tgt] = { type: "file", data: data };
         var p = parent(tgt);
         if (fs[p] && fs[p].kids && fs[p].kids.indexOf(leaf(tgt)) === -1) fs[p].kids.push(leaf(tgt));
-        saveState();
+        try { saveState(); } catch (e) {
+          delete fs[tgt];
+          if (deviceDownload(API + "/api/bucket/" + encodeURIComponent(n))) return print("save down: " + n + " did not fit in the virtual memory — downloaded to your device instead.");
+          return err("save down: " + n + " did not fit in the virtual memory and could not be downloaded here.");
+        }
         print("save down: wrote " + n + " (" + fmt(data.length) + ") to " + cwd + "/" + n + ". the purge will eat it unless you save up.");
-      }).catch(onerr);
+      };
+      fetch(API + "/api/bucket", { headers: bk() }).then(function (r) { return r.json(); }).then(function (d) {
+        var f = (d.files || []).filter(function (x) { return x.name === n; })[0];
+        if (f && f.size > 2 * 1024 * 1024) {
+          if (deviceDownload(API + "/api/bucket/" + encodeURIComponent(n))) return print("save down: " + n + " (" + fmt(f.size) + ") is too big for the virtual memory — downloaded straight to your device instead.");
+          return err("save down: " + n + " is too big for the virtual memory and could not be downloaded here.");
+        }
+        fetch(API + "/api/bucket/" + encodeURIComponent(n), { headers: bk() }).then(function (r) {
+          if (r.status === 404) { err("save down: no such file in the bucket: " + n); return null; }
+          return r.text();
+        }).then(function (data) {
+          if (data !== null) writeSmall(data);
+        }).catch(onerr);
+      }).catch(function () {
+        fetch(API + "/api/bucket/" + encodeURIComponent(n), { headers: bk() }).then(function (r) {
+          if (r.status === 404) { err("save down: no such file in the bucket: " + n); return null; }
+          return r.text();
+        }).then(function (data) {
+          if (data !== null) writeSmall(data);
+        }).catch(onerr);
+      });
       return;
     }
     if (sub === "up") {
@@ -594,7 +627,7 @@ boot();
       if (typeOf(up) === "dir") return err("save up: " + args[1] + " is a directory. save a file, not a structure.");
       var nm = leaf(up);
       if (bad(nm)) return err("save up: invalid name");
-      fetch(API + "/api/bucket/" + encodeURIComponent(nm), { method: "PUT", body: fs[up].data }).then(function (r) { return r.json(); }).then(function (d) {
+      fetch(API + "/api/bucket/" + encodeURIComponent(nm), { method: "PUT", headers: bk(), body: fs[up].data }).then(function (r) { return r.json(); }).then(function (d) {
         if (d.error) return err("save up: " + d.error);
         print("save up: " + nm + " (" + fmt(d.size) + ") is now in the bucket. it survives the purge. use this power wisely.");
       }).catch(onerr);
@@ -604,14 +637,14 @@ boot();
       if (!args[1]) return err("save rm: need a name");
       var rn = args[1];
       if (bad(rn)) return err("save rm: invalid name (no / or ..)");
-      fetch(API + "/api/bucket/" + encodeURIComponent(rn), { method: "DELETE" }).then(function (r) { return r.json(); }).then(function (d) {
+      fetch(API + "/api/bucket/" + encodeURIComponent(rn), { method: "DELETE", headers: bk() }).then(function (r) { return r.json(); }).then(function (d) {
         if (d.error) return err("save rm: " + d.error);
         print("save rm: " + rn + " deleted from the bucket. back to the void.");
       }).catch(onerr);
       return;
     }
     if (sub === "du") {
-      fetch(API + "/api/bucket").then(function (r) { return r.json(); }).then(function (d) {
+      fetch(API + "/api/bucket", { headers: bk() }).then(function (r) { return r.json(); }).then(function (d) {
         var total = 0;
         for (var i = 0; i < (d.files || []).length; i++) total += d.files[i].size;
         print("save du: " + (d.files || []).length + " files, " + fmt(total) + " — of the 10GB R2 bucket. the purge cannot reach it here.");
@@ -648,6 +681,14 @@ boot();
       return print("download: " + rn + " removed from the virtual memory. it never existed. mostly.");
     }
     var url = sluxUrl(t);
+    var official = url.indexOf("https://raw.githubusercontent.com/OMEGALULUL/LunixOS/tools/") === 0;
+    if (!official) {
+      printHtml("<span class='warn'>warning: installing from an untrusted source.</span><br>");
+      print("this .slux will run code in this browser with full access to this session — your files, your command history, and the storage bucket. only continue if you trust the source.");
+      try {
+        if (!confirm("Install this .slux from outside the official tools branch? It can read and send your session data. Cancel to abort.")) return err("download: cancelled — nothing was installed.");
+      } catch (e) { return err("download: cancelled — nothing was installed."); }
+    }
     fetch(url).then(function (r) {
       if (!r.ok) throw new Error("http " + r.status);
       return r.text();
@@ -670,6 +711,10 @@ boot();
     }).catch(function () { err("download: could not fetch " + url + " — check the link, or is the tool on the tools branch?"); });
   },
   exps: function (args) {
+    var locked = false, inlinePw = null;
+    if (args[0] === "lock" || args[0] === "--lock" || args[0] === "-l") { locked = true; args.shift(); }
+    if (locked && !crypto.subtle) return err("exps: locking needs WebCrypto — open lunix over https or as a local file.");
+    if (locked && args.length && args[0] !== "") inlinePw = args.shift();
     var dirs = [], files = 0;
     for (var k in fs) {
       if (fs[k].type === "dir") { if (k !== "/") dirs.push(k); }
@@ -698,28 +743,80 @@ boot();
     lines.push("loadInstalled();");
     lines.push("})();");
     var txt = lines.join("\n");
-    var fname = args[0] || "session.slux";
-    if (fname.indexOf(".slux") !== fname.length - 5) fname += ".slux";
-    try {
-      var blob = new Blob([txt], { type: "application/octet-stream" });
-      var dl = document.createElement("a");
-      dl.href = URL.createObjectURL(blob);
-      dl.download = fname;
-      document.body.appendChild(dl);
-      dl.click();
-      document.body.removeChild(dl);
-      setTimeout(function () { URL.revokeObjectURL(dl.href); }, 1000);
-      print("exps: downloaded " + fname + " — session " + SID + " (" + txt.length + " bytes: " + dirs.length + " dirs, " + files + " files, " + Object.keys(pkgs).length + " pkgs, " + hist.length + " commands).");
-      print("exps: nothing was stored in the sim — the file now lives only on your device. import it later with: imps " + fname);
-    } catch (e) { err("exps: could not download " + fname + " in this environment"); }
+    var fname = args[0] || "lunix-session";
+    if (fname.toLowerCase().endsWith(".zip")) fname = fname.slice(0, -4);
+    if (fname.toLowerCase().endsWith(".slux")) fname = fname.slice(0, -5);
+    var startExport = function (lockKey, lockSalt) {
+    fetch(API + "/api/bucket", { headers: bk() }).then(function (r) { return r.json(); }).then(function (d) {
+      var isAudio = /\.(mp3|wav|ogg|oga|m4a|aac|flac|opus|webm)$/i;
+      var todo = (d.files || []).filter(function (f) { return isAudio.test(f.name) || /\.slux$/i.test(f.name); });
+      var chain = Promise.resolve(), media = [];
+      todo.forEach(function (f) {
+        chain = chain.then(function () {
+          return fetch(API + "/api/bucket/" + encodeURIComponent(f.name), { headers: bk() }).then(function (r) { return r.arrayBuffer(); }).then(function (ab) {
+            media.push({ name: "media/" + f.name, data: new Uint8Array(ab) });
+          }).catch(function () {});
+        });
+      });
+      return chain.then(function () {
+        if (media.length) {
+          var names = media.map(function (m) { return m.name.split("/").pop(); }).join(",");
+          txt = txt.replace("#slux version 1.0.0\n", "#slux version 1.0.0\n#slux media " + names + "\n");
+        }
+        var entries = [{ name: "session.slux", data: new TextEncoder().encode(txt) }].concat(media);
+        var finish = function (finalEntries, tagline) {
+          var zip = zipBuild(finalEntries);
+          downloadBytes(fname + ".zip", zip, "application/zip");
+          print("exps: downloaded " + fname + ".zip — session " + SID + " (" + dirs.length + " dirs, " + files + " files, " + Object.keys(pkgs).length + " pkgs, " + hist.length + " cmds) + " + media.length + " media file(s) from the bucket." + tagline);
+          if (!media.length) return print("exps: nothing was stored in the sim — the archive lives only on your device. restore it later with: imps");
+          var del = Promise.resolve(), delCount = 0;
+          media.forEach(function (m) {
+            var nm = m.name.split("/").pop();
+            if (!isAudio.test(nm)) return;
+            del = del.then(function () {
+              return fetch(API + "/api/bucket/" + encodeURIComponent(nm), { method: "DELETE", headers: bk() }).then(function (r) { return r.json(); }).then(function (d) { if (!d.error) delCount++; }).catch(function () {});
+            });
+          });
+          return del.then(function () {
+            print("exps: " + delCount + " audio file(s) cleared from the bucket — the zip on your device is now the only copy. imps restores them from it.");
+          });
+        };
+        if (!locked) return finish(entries, "");
+        var sealed = [], sp = Promise.resolve();
+        entries.forEach(function (en) {
+          sp = sp.then(function () {
+            return sealBytes(lockKey, en.data, lockSalt).then(function (blob) {
+              sealed.push({ name: en.name + ".locked", data: blob });
+            });
+          });
+        });
+        sp.then(function () { finish(sealed, " LOCKED — every entry is sealed (pbkdf2/aes-gcm); imps will ask for the password."); })
+          .catch(function () { err("exps: sealing failed mid-archive."); });
+      });
+    }).catch(function () { err("exps: could not reach the bucket to bundle your media. your session is safe in the sim."); });
+    };
+    if (!locked) return startExport(null, null);
+    var doLock = function (pw) {
+      var salt = crypto.getRandomValues(new Uint8Array(16));
+      deriveKey(pw, salt).then(function (key) { startExport(key, salt); })
+        .catch(function () { err("exps: key derivation failed."); });
+    };
+    if (inlinePw !== null) {
+      print("exps lock: password taken from the command line — heads up, it now sits in your session history.");
+      doLock(inlinePw);
+    } else {
+      askPwTwice("exps lock", doLock);
+    }
   },
   imps: function (args) {
     var src = args[0];
     if (src) {
       if (src.indexOf("://") !== -1) {
         var url = sluxUrl(src);
-        fetch(url).then(function (r) { if (!r.ok) throw new Error(); return r.text(); }).then(function (txt) {
-          applySession(txt);
+        fetch(url).then(function (r) { if (!r.ok) throw new Error(); return r.arrayBuffer(); }).then(function (ab) {
+          var b = new Uint8Array(ab);
+          if (b.length > 2 && b[0] === 0x50 && b[1] === 0x4b) importZip(b);
+          else applySession(new TextDecoder().decode(b));
         }).catch(function () { err("imps: could not fetch " + url); });
         return;
       }
@@ -730,15 +827,66 @@ boot();
     }
     var picker = document.createElement("input");
     picker.type = "file";
-    picker.accept = ".slux,application/octet-stream";
+    picker.accept = ".slux,.zip,application/octet-stream,application/zip";
     picker.addEventListener("change", function () {
       var f = picker.files && picker.files[0];
       if (!f) return;
       var rd = new FileReader();
-      rd.onload = function () { applySession(String(rd.result)); };
-      rd.readAsText(f);
+      rd.onload = function () {
+        var b = new Uint8Array(rd.result);
+        if (b.length > 2 && b[0] === 0x50 && b[1] === 0x4b) importZip(b);
+        else applySession(new TextDecoder().decode(b));
+      };
+      rd.readAsArrayBuffer(f);
     });
     picker.click();
+  },
+  music: function (args) {
+    var player = document.getElementById("music-player");
+    if (!player) {
+      player = document.createElement("audio");
+      player.id = "music-player";
+      player.style.display = "none";
+      document.body.appendChild(player);
+    }
+    var sub = args[0];
+    if (!sub || sub === "-h" || sub === "--help") return print("usage: music <song> — play an audio file from the bucket or a url (mp3, wav, ogg, m4a, aac, flac, opus, webm) | music imps — pick audio from your device | music stop");
+    if (sub === "imps") {
+      if (args[1]) return err("music imps: too many arguments — just 'music imps' opens the file picker");
+      var picker = document.createElement("input");
+      picker.type = "file";
+      picker.accept = ".mp3,.wav,.ogg,.oga,.m4a,.aac,.flac,.opus,.webm,audio/*";
+      picker.addEventListener("change", function () {
+        var f = picker.files && picker.files[0];
+        if (!f) return;
+        if (!/\.(mp3|wav|ogg|oga|m4a|aac|flac|opus|webm)$/i.test(f.name)) {
+          return err("music: '" + f.name + "' is not an audio file. i only play: mp3, wav, ogg, m4a, aac, flac, opus, webm");
+        }
+        if (player._lunixUrl) { try { URL.revokeObjectURL(player._lunixUrl); } catch (e) {} }
+        player._lunixUrl = URL.createObjectURL(f);
+        player.src = player._lunixUrl;
+        player.play().then(function () {
+          print("music: playing " + f.name + " straight from your device (" + (f.size / 1048576).toFixed(1) + " MiB). 'music stop' to stop.");
+        }).catch(function () {
+          err("music: could not play " + f.name + " — this browser may not decode that format.");
+        });
+      });
+      picker.click();
+      return;
+    }
+    if (sub === "stop") {
+      try { player.pause(); player.removeAttribute("src"); player.load(); } catch (e) {}
+      if (player._lunixUrl) { try { URL.revokeObjectURL(player._lunixUrl); } catch (e) {} player._lunixUrl = null; }
+      return print("music: stopped. silence returns to the void.");
+    }
+    if (!/\.(mp3|wav|ogg|oga|m4a|aac|flac|opus|webm)$/i.test(sub)) return err("music: '" + sub + "' is not an audio file. i only play: mp3, wav, ogg, m4a, aac, flac, opus, webm");
+    var src = sub.indexOf("://") !== -1 ? sub : API + "/api/bucket/" + encodeURIComponent(sub);
+    player.src = src;
+    player.play().then(function () {
+      print("music: playing " + sub + (sub.indexOf("://") !== -1 ? "" : " from the bucket") + ". 'music stop' to stop.");
+    }).catch(function () {
+      err("music: could not play " + sub + " — is it in the bucket? save it up first, or give a full url.");
+    });
   },
   apk: function (args) {
     var sub = args[0];
@@ -1035,6 +1183,102 @@ function loadInstalled() {
   }
 }
 
+function bk() { return { "X-Lunix-Session": SID }; }
+
+function crc32(bytes) {
+  if (!crc32.table) {
+    crc32.table = new Uint32Array(256);
+    for (var n = 0; n < 256; n++) { var c = n; for (var k = 0; k < 8; k++) c = (c & 1) ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; crc32.table[n] = c; }
+  }
+  var t = crc32.table, c = 0xFFFFFFFF;
+  for (var i = 0; i < bytes.length; i++) c = t[(c ^ bytes[i]) & 0xFF] ^ (c >>> 8);
+  return (c ^ 0xFFFFFFFF) >>> 0;
+}
+function dosTime(d) { return ((d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1)) & 0xFFFF; }
+function dosDate(d) { return (((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate()) & 0xFFFF; }
+function u32(n) { var b = new Uint8Array(4); new DataView(b.buffer).setUint32(0, n, true); return b; }
+function u16(n) { var b = new Uint8Array(2); new DataView(b.buffer).setUint16(0, n, true); return b; }
+function catBytes(arrs) {
+  var len = 0; for (var i = 0; i < arrs.length; i++) len += arrs[i].length;
+  var out = new Uint8Array(len), o = 0;
+  for (var i = 0; i < arrs.length; i++) { out.set(arrs[i], o); o += arrs[i].length; }
+  return out;
+}
+/* ---- session lock: pbkdf2 + aes-gcm envelopes, zero dependencies ---- */
+var LOCK_TAG = new Uint8Array([0x53, 0x4c, 0x58, 0x4c, 0x4f, 0x43, 0x4b, 0x31]); /* "SLXLOCK1" */
+var LOCK_ITER = 200000;
+
+function deriveKey(pw, salt) {
+  var enc = new TextEncoder().encode(pw);
+  return crypto.subtle.importKey("raw", enc, "PBKDF2", false, ["deriveKey"]).then(function (base) {
+    return crypto.subtle.deriveKey({ name: "PBKDF2", salt: salt, iterations: LOCK_ITER, hash: "SHA-256" }, base, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
+  });
+}
+function sealBytes(key, data, salt) {
+  var iv = crypto.getRandomValues(new Uint8Array(12));
+  return crypto.subtle.encrypt({ name: "AES-GCM", iv: iv }, key, data).then(function (ct) {
+    var out = new Uint8Array(LOCK_TAG.length + 1 + salt.length + 12 + ct.byteLength);
+    out.set(LOCK_TAG, 0);
+    out[LOCK_TAG.length] = 1;
+    out.set(salt, LOCK_TAG.length + 1);
+    out.set(iv, LOCK_TAG.length + 1 + salt.length);
+    out.set(new Uint8Array(ct), LOCK_TAG.length + 1 + salt.length + 12);
+    return out;
+  });
+}
+function isLocked(b) {
+  if (b.length < LOCK_TAG.length + 29) return false;
+  for (var i = 0; i < LOCK_TAG.length; i++) if (b[i] !== LOCK_TAG[i]) return false;
+  return true;
+}
+function openSealed(key, blob) {
+  var off = LOCK_TAG.length + 1, salt = blob.slice(off, off + 16), iv = blob.slice(off + 16, off + 28);
+  return crypto.subtle.decrypt({ name: "AES-GCM", iv: iv }, key, blob.slice(off + 28)).then(function (pt) {
+    return new Uint8Array(pt);
+  });
+}
+
+function zipBuild(entries) {
+  var locals = [], offset = 0, now = new Date(), dtime = dosTime(now), ddate = dosDate(now);
+  for (var i = 0; i < entries.length; i++) {
+    var name = new TextEncoder().encode(entries[i].name);
+    var data = entries[i].data;
+    var head = catBytes([u32(0x04034b50), u16(20), u16(0), u16(0), u16(dtime), u16(ddate), u32(crc32(data)), u32(data.length), u32(data.length), u16(name.length), u16(0), name]);
+    locals.push({ head: head, data: data, crc: crc32(data), nameLen: name.length, offset: offset });
+    offset += head.length + data.length;
+  }
+  var cdStart = offset, cdParts = [];
+  for (var i = 0; i < locals.length; i++) {
+    var l = locals[i], name = new TextEncoder().encode(entries[i].name);
+    cdParts.push(catBytes([u32(0x02014b50), u16(20), u16(20), u16(0), u16(0), u16(dtime), u16(ddate), u32(l.crc), u32(l.data.length), u32(l.data.length), u16(l.nameLen), u16(0), u16(0), u16(0), u16(0), u32(0), u32(l.offset), name]));
+  }
+  var cd = catBytes(cdParts);
+  var eocd = catBytes([u32(0x06054b50), u16(0), u16(0), u16(entries.length), u16(entries.length), u32(cd.length), u32(cdStart), u16(0)]);
+  return catBytes(locals.map(function (l) { return catBytes([l.head, l.data]); }).concat([cd, eocd]));
+}
+function zipParse(buf) {
+  var entries = [], i = 0, dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+  while (i + 30 <= buf.length && dv.getUint32(i, true) === 0x04034b50) {
+    var nameLen = dv.getUint16(i + 26, true);
+    var comp = dv.getUint32(i + 18, true);
+    var uncomp = dv.getUint32(i + 22, true);
+    var name = new TextDecoder().decode(buf.subarray(i + 30, i + 30 + nameLen));
+    entries.push({ name: name, data: buf.subarray(i + 30 + nameLen, i + 30 + nameLen + uncomp) });
+    i = i + 30 + nameLen + comp;
+  }
+  return entries;
+}
+function downloadBytes(name, bytes, mime) {
+  var blob = new Blob([bytes], { type: mime || "application/octet-stream" });
+  var dl = document.createElement("a");
+  dl.href = URL.createObjectURL(blob);
+  dl.download = name;
+  document.body.appendChild(dl);
+  dl.click();
+  document.body.removeChild(dl);
+  setTimeout(function () { URL.revokeObjectURL(dl.href); }, 1000);
+}
+
 function applySession(txt) {
   var meta = parseSlux(txt);
   if (meta.name !== "session") return err("imps: " + (meta.name || "that file") + " is not a session export (run exps)");
@@ -1047,6 +1291,63 @@ function applySession(txt) {
   promptEl.innerHTML = promptHtml();
   document.title = "lunix: " + promptPath() + " — LUNIX";
   print("imps: session " + SID + " imported. welcome back.");
+}
+
+function restoreSession(sessionText, media) {
+  applySession(sessionText);
+  var mm = sessionText.match(/#slux media ([^\n]+)/);
+  var manifest = mm ? mm[1].split(",").map(function (s) { return s.trim(); }).filter(Boolean) : null;
+  var chain = Promise.resolve(), n = 0;
+  media.forEach(function (m) {
+    var name = m.name.split("/").pop();
+    if (manifest && manifest.indexOf(name) === -1) return;
+    if (!/^[a-zA-Z0-9._-]+$/.test(name)) return;
+    chain = chain.then(function () {
+      return fetch(API + "/api/bucket/" + encodeURIComponent(name), { method: "PUT", headers: bk(), body: m.data }).then(function (r) { return r.json(); }).then(function (d) { if (!d.error) n++; }).catch(function () {});
+    });
+  });
+  chain.then(function () { print("imps: session restored. " + n + " media file(s) put back in the bucket."); });
+}
+
+function importZip(bytes) {
+  var entries = zipParse(bytes);
+  var session = null, media = [], sessLocked = null;
+  for (var i = 0; i < entries.length; i++) {
+    if (entries[i].name === "session.slux") session = new TextDecoder().decode(entries[i].data);
+    else if (entries[i].name === "session.slux.locked") sessLocked = entries[i];
+    else media.push(entries[i]);
+  }
+  if (sessLocked) return importZipLocked(sessLocked, media);
+  if (!session) return err("imps: no session.slux in that zip");
+  restoreSession(session, media);
+}
+
+function importZipLocked(sessEntry, media) {
+  if (!crypto.subtle) return err("imps: this archive is locked but this context has no WebCrypto — use https or open lunix as a local file.");
+  var attempt = function () {
+    askPw("imps: LOCKED archive — enter password:", function (pw) {
+      if (!pw) return err("imps: no password entered — import aborted.");
+      deriveKey(pw, sessEntry.data.slice(LOCK_TAG.length + 1, LOCK_TAG.length + 17)).then(function (key) {
+        return openSealed(key, sessEntry.data).then(function (plain) {
+          var sessionText = new TextDecoder().decode(plain);
+          var dec = [], dp = Promise.resolve();
+          media.forEach(function (m) {
+            if (!isLocked(m.data)) { dec.push(m); return; }
+            dp = dp.then(function () {
+              return openSealed(key, m.data).then(function (pt) {
+                dec.push({ name: m.name.replace(/\.locked$/i, ""), data: pt });
+              }).catch(function () {});
+            });
+          });
+          dp.then(function () { restoreSession(sessionText, dec); });
+        });
+      }).catch(function () {
+        err("imps: wrong password.");
+        attempt();
+      });
+    });
+  };
+  attempt();
 }
 
 var BOOT_LINES = [
@@ -1114,10 +1415,36 @@ function showPrompt() {
 
 var loginMode = true;
 
+var pwPending = null;
+function askPw(label, cb) {
+  print(label);
+  pwPending = cb;
+  input.type = "password";
+  input.value = "";
+  input.focus();
+}
+function askPwTwice(what, cb) {
+  askPw(what + " — enter password (input hidden):", function (pw1) {
+    if (!pw1) return err(what + ": empty password — aborted.");
+    askPw(what + " — confirm password:", function (pw2) {
+      if (pw1 !== pw2) return err(what + ": passwords do not match — nothing was exported.");
+      cb(pw1);
+    });
+  });
+}
+
 input.addEventListener("keydown", function (e) {
   if (e.key === "Enter") {
     e.preventDefault();
     var v = input.value;
+    if (pwPending) {
+      input.type = "text";
+      var cb = pwPending;
+      pwPending = null;
+      input.value = "";
+      cb(v);
+      return;
+    }
     if (loginMode) {
       var uname = v.trim() || "lunix";
       print("lunix login: " + (v.trim() || "lunix"));
