@@ -316,6 +316,7 @@ var CMDS = {
       "&nbsp;&nbsp;<span class='accent'>sudo</span>&nbsp;&nbsp;<span class='accent'>su</span>&nbsp;&nbsp;<span class='accent'>exit</span>&nbsp;&nbsp;<span class='accent'>reboot</span>&nbsp;&nbsp;<span class='accent'>poweroff</span>&nbsp;&nbsp;<span class='accent'>end</span><br>" +
       "&nbsp;&nbsp;<span class='accent'>save down|up|rm|du</span> — the bucket survives the purge<br>" +
       "&nbsp;&nbsp;<span class='accent'>download</span> &lt;link|name&gt; — install tools from github into the virtual memory<br>" +
+      "&nbsp;&nbsp;<span class='accent'>gitshop</span> — browse every installable item on the branches outside main<br>" +
       "&nbsp;&nbsp;<span class='accent'>exps</span> [lock [password]] [name] — export this session + bucket media as a zip; add <span class='accent'>lock</span> to seal it (password prompted, or typed inline)<br>" +
       "&nbsp;&nbsp;<span class='accent'>imps</span> [file] — pick a session.slux or zip and bring a previous session back to life (locked archives ask for the password)<br>" +
       "&nbsp;&nbsp;<span class='accent'>music</span> &lt;song&gt;|imps|stop — play audio from the bucket, a url, or straight off your device (mp3, wav, ogg, m4a, aac, flac, opus, webm)<br>" +
@@ -715,6 +716,42 @@ boot();
       saveState();
       print("download: " + name + " installed into the virtual memory. it will outlive a refresh but not the purge.");
     }).catch(function () { err("download: could not fetch " + url + " — check the link, or is the tool on the tools branch?"); });
+  },
+  gitshop: function (args) {
+    var repo = "OMEGALULUL/LunixOS";
+    if (args[0] === "-h" || args[0] === "--help") return print("usage: gitshop — browse every installable item on the branches outside main");
+    print("gitshop: walking the aisles of github.com/" + repo + " ...");
+    fetch("https://api.github.com/repos/" + repo + "/branches").then(function (r) { return r.json(); }).then(function (branches) {
+      if (!Array.isArray(branches)) throw new Error((branches && branches.message) || "github said no");
+      var aisles = branches.map(function (b) { return b.name; }).filter(function (n) { return n !== "main" && n !== "master"; });
+      if (!aisles.length) return print("gitshop: only main exists — the shelves are empty. the purge approves.");
+      var chain = Promise.resolve(), total = 0;
+      aisles.forEach(function (aisle) {
+        chain = chain.then(function () {
+          return fetch("https://api.github.com/repos/" + repo + "/contents/?ref=" + encodeURIComponent(aisle)).then(function (r) { return r.json(); }).then(function (items) {
+            if (!Array.isArray(items)) return;
+            var files = items.filter(function (i) { return i.type === "file"; });
+            if (!files.length) return;
+            printHtml("<b>aisle: " + esc(aisle) + "</b>");
+            files.forEach(function (f) {
+              var kb = f.size < 1024 ? f.size + " B" : (f.size / 1024).toFixed(1) + " KiB";
+              if (/\.slux$/i.test(f.name)) {
+                total++;
+                printHtml("&nbsp;&nbsp;<span class='accent'>" + esc(f.name.replace(/\.slux$/i, "")) + "</span> <span class='dim'>" + esc(kb) + "</span> — install: <span class='blue'>download " + esc(f.name.replace(/\.slux$/i, "")) + "</span>");
+              } else {
+                printHtml("&nbsp;&nbsp;<span class='dim'>" + esc(f.name) + " · " + esc(kb) + " · docs, not installable</span>");
+              }
+            });
+            print("");
+          }).catch(function () {});
+        });
+      });
+      return chain.then(function () {
+        print("checkout: " + total + " installable item(s). download <name> puts it in /usr/bin — it survives a refresh, the purge still wins eventually.");
+      });
+    }).catch(function (e2) {
+      err("gitshop: could not reach the shelves (" + e2.message + "). the github api may be rate-limiting you — try again in a bit.");
+    });
   },
   exps: function (args) {
     var locked = false, inlinePw = null;

@@ -83,7 +83,7 @@ the aesthetic is the ZTNA portfolio's dark bash theme: `#000` background, `#c9c9
 | auth | `sudo`, `su root`, `login` |
 | lifecycle | `logout`, `exit`, `reboot`, `poweroff`, `end` |
 | storage | `save down [<name>]`, `save up <file>`, `save rm <name>`, `save du` |
-| tools | `download <link|name>`, `download list`, `download rm <name>` |
+| tools | `download <link|name>`, `download list`, `download rm <name>` · `gitshop` — browse every installable item on the branches outside main |
 | media | `music <song>` — play audio from the bucket or a url · `music imps` — pick audio off your device and play it · `music stop` — stop (mp3, wav, ogg, m4a, aac, flac, opus, webm) |
 | sessions | `exps [lock]` — download the whole session + your bucket media as one `lunix-session.zip` (`lock` seals it behind a password) · `imps` — pick a `.slux` or `.zip` from your device to restore it |
 | tools (after `apk add`) | `cowsay`, `python3`, `git`, `node`, `htop`, `lolcat`, `docker`, `ssh`, `tmux`, `fish`, `zsh`, `bash`, `nginx`, `jq`, `neovim`, `vim`, `ripgrep`, `tree`, `openssh` |
@@ -275,6 +275,7 @@ tools are tiny programs you download into the virtual memory. they are hosted in
 
 ```
 lunix@lunix:~$ download list                          # what's on the tools branch
+lunix@lunix:~$ gitshop                                # browse all non-main branches of the repo
 lunix@lunix:~$ download nmap                          # installs from the tools branch
 lunix@lunix:~$ download https://github.com/OMEGALULUL/LunixOS/blob/tools/nmap.slux
 lunix@lunix:~$ nmap -sV 192.168.86.100                # the tool now works
