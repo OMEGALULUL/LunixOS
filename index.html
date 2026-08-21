@@ -162,7 +162,13 @@
 <script>
 "use strict";
 var SID = (Math.random().toString(36).slice(2, 8) + Math.random().toString(36).slice(2, 6)).toUpperCase();
-var API = location.protocol === "file:" ? "https://lunix.blueberryservices.co.za" : "";
+/* ---- deployment config ------------------------------------------------
+   hosted on http/https : everything is same-origin. nothing to change.
+   opened from file://  : set FALLBACK_API to YOUR worker url to enable
+                          bucket features locally, or leave "" for a fully
+                          offline sim (save/music-from-bucket just say so). */
+var FALLBACK_API = "";
+var API = location.protocol === "file:" ? FALLBACK_API : "";
 var body = document.getElementById("vt-body");
 var input = document.getElementById("vt-input");
 var promptEl = document.getElementById("vt-prompt");

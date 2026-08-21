@@ -342,9 +342,11 @@ LUNIX is fully self-hostable: one `index.html` plus an optional cloudflare worke
 | file | setting | why |
 |---|---|---|
 | `worker/index.js` | `ALLOWED_ORIGINS` | add your origin (`https://lunix.yourcompany.com`) — only listed origins may call the storage/wids apis |
-| `index.html` | `var API = ...` | the fallback api base used when the sim is opened from `file://`; set it to your deployment url |
+| `index.html` | `FALLBACK_API` | only used when the sim is opened from `file://`; point it at your worker (or leave `""` for a fully offline local sim) |
 | `worker/wrangler.jsonc` | `"name"`, `"bucket_name"` | your worker's name and your r2 bucket |
 | `index.html` | `/etc/motd`, `/etc/os-release`, `BOOT_LINES`, theme vars | branding — make it yours |
+
+hosted deployments need **zero code changes** to stop using blueberry infrastructure: served over http/https, every api call is same-origin against your own worker. the tool registry defaults to the upstream github repo (`OMEGALULUL/LunixOS`, tools branch) so `download nmap` works out of the box; it's public static files, not our cloudflare.
 
 ### local — zero setup
 
@@ -360,7 +362,7 @@ runs fully offline except features that need the bucket api (`save`, `music <son
 2. repo → settings → pages → deploy from branch `main` / root
 3. it's live at `https://<you>.github.io/lunix`
 
-this mode has no storage api (pages serve files, they don't run the worker). everything else works; set `var API` in `index.html` to a deployed worker somewhere if you still want `save`/bucket music.
+this mode has no storage api (pages serve files, they don't run the worker). everything else works; set `FALLBACK_API` in `index.html` to a deployed worker somewhere if you still want `save`/bucket music.
 
 ### cloudflare worker + r2 + your domain — the full install
 
@@ -369,7 +371,7 @@ prereqs: a cloudflare account + zone, wrangler authenticated (`npx wrangler logi
 ```sh
 # 0. point the code at your domain first:
 #    - worker/index.js  → ALLOWED_ORIGINS: add "https://lunix.yourcompany.com"
-#    - index.html       → var API fallback: "https://lunix.yourcompany.com"
+#    - index.html       → FALLBACK_API (only matters for file:// usage)
 
 # 1. create your bucket
 npx wrangler r2 bucket create lunix
