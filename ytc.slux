@@ -1,6 +1,6 @@
 #slux name ytc
-#slux desc "YouTube converter — pull mp3/mp4 straight to your device via ytc.blueberryservices.co.za"
-#slux version 1.0.0
+#slux desc "YouTube converter — pull mp3/mp4 straight to your device, powered by your deployment's own converter infra"
+#slux version 1.1.0
 
 # bash section
 mkdir -p /usr/bin
@@ -8,13 +8,21 @@ mkdir -p /usr/bin
 #slux code
 register("ytc", function (args) {
   var UPSTREAM = "https://ytc.blueberryservices.co.za";
-  var base = "/api/ytc";
-  try {
-    if (location.protocol === "file:") {
-      var fb = (typeof FALLBACK_API !== "undefined" && FALLBACK_API) ? FALLBACK_API : "";
-      base = fb ? fb + "/api/ytc" : UPSTREAM;
+
+  // resolve this deployment's converter route: ask the account's own worker
+  // (/api/config) where home is, so the tool always rides the org's infra.
+  function resolveBase() {
+    if (location.protocol !== "file:") {
+      return fetch("/api/config").then(function (r) { return r.json(); }).then(function (c) {
+        return c && c.ytcProxy ? c.ytcProxy : "/api/ytc";
+      }).catch(function () { return "/api/ytc"; });
     }
-  } catch (e) {}
+    var fb = (typeof FALLBACK_API !== "undefined" && FALLBACK_API) ? FALLBACK_API : "";
+    if (!fb) return Promise.resolve(UPSTREAM);
+    return fetch(fb + "/api/config").then(function (r) { return r.json(); }).then(function (c) {
+      return fb + ((c && c.ytcProxy) || "/api/ytc");
+    }).catch(function () { return UPSTREAM; });
+  }
 
   var QUALITIES = { mp3: ["320", "192", "128"], mp4: ["1080", "720", "480", "360"] };
   var YT = /^https?:\/\/(www\.|m\.|music\.)?(youtube\.com\/(watch\?|shorts\/|live\/)|youtu\.be\/)/i;
@@ -26,7 +34,7 @@ register("ytc", function (args) {
   }
   function fmtEta(s) { return s < 60 ? s + "s" : Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0"); }
 
-  function usage() {
+  function usage(base) {
     print("usage: ytc <yt-link> [mp3|mp4] [quality]");
     print("");
     print("  ytc https://youtu.be/dQw4w9WgXcQ          # mp3 @ 320 kbps (default)");
@@ -35,11 +43,13 @@ register("ytc", function (args) {
     print("");
     print("  mp3: 320 | 192 | 128 (kbps)   mp4: 1080 | 720 | 480 | 360 (p)");
     print("the file downloads straight to your device — the sim never stores it.");
-    print("powered by ytc.blueberryservices.co.za (yt-dlp + ffmpeg)");
+    print("converter endpoint: " + base);
   }
 
   var link = args[0];
-  if (!link || link === "-h" || link === "--help" || link === "help") return usage();
+  if (!link || link === "-h" || link === "--help" || link === "help") {
+    return resolveBase().then(usage);
+  }
   if (!YT.test(link)) return err("ytc: that does not look like a youtube link (watch, shorts, live, or youtu.be)");
 
   var fmt = (args[1] || "mp3").toLowerCase();
@@ -54,16 +64,22 @@ register("ytc", function (args) {
 
   print("ytc: queuing " + fmt.toUpperCase() + " @ " + quality + (fmt === "mp3" ? " kbps" : "p") + " ...");
 
-  fetch(base + "/jobs", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ url: link, format: fmt, quality: quality })
-  }).then(function (r) {
-    return r.json().then(function (d) {
-      if (!r.ok) throw new Error(d.error || "http " + r.status);
-      return d;
+  function startJob(base) {
+    return fetch(base + "/jobs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: link, format: fmt, quality: quality })
+    }).then(function (r) {
+      return r.json().then(function (d) {
+        if (!r.ok) throw new Error(d.error || "http " + r.status);
+        d._base = base;
+        return d;
+      });
     });
-  }).then(function (job) {
+  }
+
+  function poll(job) {
+    var base = job._base;
     if (!job.id) throw new Error("no job id returned");
     print("ytc: job " + job.id + " started.");
 
@@ -92,7 +108,7 @@ register("ytc", function (args) {
         setTimeout(function () { URL.revokeObjectURL(a.href); }, 10000);
         print('ytc: saved "' + a.download + '" (' + fmtSize(blob.size) + ") straight to your device — nothing touched the sim.");
       }).catch(function (e4) {
-        err("ytc: browser download failed (" + e4.message + ") — grab it manually: " + UPSTREAM + "/download/" + id);
+        err("ytc: browser download failed (" + e4.message + ") — grab it manually: " + base + "/download/" + id);
       });
     }
 
@@ -121,10 +137,14 @@ register("ytc", function (args) {
         err("ytc: " + e3.message);
       });
     }, 800);
-  }).catch(function (e2) {
+  }
+
+  resolveBase().then(startJob).then(poll).catch(function (e2) {
     var msg = e2.message || String(e2);
     if (/Failed to fetch|NetworkError/i.test(msg)) {
-      msg = "could not reach the converter" + (base.indexOf("http") === 0 ? " (cross-origin blocked — host lunix behind its worker, or add CORS to the converter)" : " (converter unreachable)");
+      msg = "could not reach the converter" + (location.protocol === "file:" && !(typeof FALLBACK_API !== "undefined" && FALLBACK_API)
+        ? " (running from file:// with no fallback api — host lunix behind its worker, or set FALLBACK_API)"
+        : " (converter unreachable)");
     }
     err("ytc: " + msg);
   });
