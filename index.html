@@ -129,6 +129,77 @@
   .boot .line { animation: fadein .2s ease; }
   .boot .lbl { color: var(--dim); }
   @keyframes fadein { from { opacity: 0; } to { opacity: 1; } }
+
+  /* ---- nano editor overlay ---- */
+  .nano {
+    position: fixed;
+    inset: 0 0 30px 0;
+    z-index: 90;
+    background: #000;
+    display: flex;
+    flex-direction: column;
+  }
+  .nano .nano-title {
+    background: var(--accent);
+    color: #000;
+    font-weight: bold;
+    text-align: center;
+    padding: 2px 10px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .nano textarea {
+    flex: 1;
+    background: #000;
+    color: var(--fg);
+    border: 0;
+    outline: none;
+    resize: none;
+    font: inherit;
+    line-height: 1.5;
+    padding: 8px 12px;
+    white-space: pre;
+    overflow: auto;
+  }
+  .nano .nano-keys {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px 14px;
+    background: #111;
+    border-top: 1px solid #26262a;
+    color: var(--dim);
+    font-size: 12px;
+    padding: 4px 10px;
+    user-select: none;
+  }
+  .nano .nano-keys b { color: var(--fg); font-weight: normal; }
+
+  /* ---- vid player ---- */
+  .vidbox {
+    position: fixed;
+    right: 12px;
+    bottom: 42px;
+    z-index: 95;
+    width: min(480px, calc(100vw - 24px));
+    background: #0a0a0a;
+    border: 1px solid #26262a;
+    box-shadow: 0 8px 40px rgba(0, 0, 0, .8);
+  }
+  .vidbox .vid-title {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    background: #111;
+    color: var(--fg);
+    font-size: 12px;
+    padding: 4px 8px;
+    border-bottom: 1px solid #26262a;
+  }
+  .vidbox .vid-title span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .vidbox .vid-close { background: none; border: 0; color: var(--accent); font: inherit; cursor: pointer; padding: 0 4px; }
+  .vidbox video { display: block; width: 100%; max-height: 60vh; background: #000; }
 </style>
 </head>
 <body>
@@ -310,7 +381,7 @@ function pad(n, w) { return (n + "                    ").slice(0, w); }
 var CMDS = {
   help: function (args) {
     printHtml("available commands (this is a simulation. a lovely one)<br>" +
-      "&nbsp;&nbsp;<span class='accent'>ls</span> [-l]&nbsp;&nbsp;<span class='accent'>cd</span> &lt;dir&gt;&nbsp;&nbsp;<span class='accent'>cat</span> &lt;file&gt;&nbsp;&nbsp;<span class='accent'>pwd</span>&nbsp;&nbsp;<span class='accent'>mkdir</span>&nbsp;&nbsp;<span class='accent'>touch</span>&nbsp;&nbsp;<span class='accent'>rm</span>&nbsp;&nbsp;<span class='accent'>mv</span>&nbsp;&nbsp;<span class='accent'>cp</span>&nbsp;&nbsp;<span class='accent'>tree</span><br>" +
+      "&nbsp;&nbsp;<span class='accent'>ls</span> [-l]&nbsp;&nbsp;<span class='accent'>cd</span> &lt;dir&gt;&nbsp;&nbsp;<span class='accent'>cat</span> &lt;file&gt;&nbsp;&nbsp;<span class='accent'>nano</span> &lt;file&gt;&nbsp;&nbsp;<span class='accent'>pwd</span>&nbsp;&nbsp;<span class='accent'>mkdir</span>&nbsp;&nbsp;<span class='accent'>touch</span>&nbsp;&nbsp;<span class='accent'>rm</span>&nbsp;&nbsp;<span class='accent'>mv</span>&nbsp;&nbsp;<span class='accent'>cp</span>&nbsp;&nbsp;<span class='accent'>tree</span><br>" +
       "&nbsp;&nbsp;<span class='accent'>whoami</span>&nbsp;&nbsp;<span class='accent'>id</span>&nbsp;&nbsp;<span class='accent'>uname</span>&nbsp;&nbsp;<span class='accent'>hostname</span>&nbsp;&nbsp;<span class='accent'>uptime</span>&nbsp;&nbsp;<span class='accent'>date</span>&nbsp;&nbsp;<span class='accent'>free</span>&nbsp;&nbsp;<span class='accent'>history</span>&nbsp;&nbsp;<span class='accent'>clear</span><br>" +
       "&nbsp;&nbsp;<span class='accent'>apk update|add|del|search|info</span>&nbsp;&nbsp;<span class='accent'>ping</span>&nbsp;&nbsp;<span class='accent'>curl</span>&nbsp;&nbsp;<span class='accent'>wget</span><br>" +
       "&nbsp;&nbsp;<span class='accent'>sudo</span>&nbsp;&nbsp;<span class='accent'>su</span>&nbsp;&nbsp;<span class='accent'>exit</span>&nbsp;&nbsp;<span class='accent'>reboot</span>&nbsp;&nbsp;<span class='accent'>poweroff</span>&nbsp;&nbsp;<span class='accent'>end</span><br>" +
@@ -320,6 +391,7 @@ var CMDS = {
       "&nbsp;&nbsp;<span class='accent'>exps</span> [lock [password]] [name] — export this session + bucket media as a zip; add <span class='accent'>lock</span> to seal it (password prompted, or typed inline)<br>" +
       "&nbsp;&nbsp;<span class='accent'>imps</span> [file] — pick a session.slux or zip and bring a previous session back to life (locked archives ask for the password)<br>" +
       "&nbsp;&nbsp;<span class='accent'>music</span> &lt;song&gt;|imps|stop — play audio from the bucket, a url, or straight off your device (mp3, wav, ogg, m4a, aac, flac, opus, webm)<br>" +
+      "&nbsp;&nbsp;<span class='accent'>vid</span> [file|url]|stop — watch video straight off your device, from the bucket, or a url (mp4, webm, ogv, m4v, mov, mkv)<br>" +
       "installed tools light up: <span class='accent'>cowsay</span> <span class='accent'>python3</span> <span class='accent'>git</span> <span class='accent'>node</span> <span class='accent'>htop</span> <span class='accent'>lolcat</span> <span class='accent'>docker</span> ...");
   },
   clear: function () { body.innerHTML = ""; },
@@ -470,6 +542,131 @@ var CMDS = {
     };
     print(cwd === "/" ? "/" : cwd);
     walk(cwd, "");
+  },
+  nano: function (args) {
+    if (args[0] === "-h" || args[0] === "--help") return print("usage: nano <file> — edit a file in the virtual filesystem (^O write out, ^X exit, ^K cut line, ^U uncut, ^G help)");
+    var path = norm(resolve(args[0] || "untitled.txt"));
+    if (exists(path) && typeOf(path) === "dir") return err("nano: " + (args[0] || path) + ": is a directory");
+    var isNew = !exists(path);
+    var data = isNew ? "" : fs[path].data;
+
+    var ed = document.getElementById("nano-ed");
+    if (!ed) {
+      ed = document.createElement("div");
+      ed.id = "nano-ed";
+      ed.className = "nano";
+      ed.innerHTML = '<div class="nano-title">GNU nano 7.2</div>' +
+        '<textarea spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off"></textarea>' +
+        '<div class="nano-keys"><b>^O</b> Write Out&nbsp;&nbsp;<b>^X</b> Exit&nbsp;&nbsp;<b>^K</b> Cut Line&nbsp;&nbsp;<b>^U</b> Uncut&nbsp;&nbsp;<b>^G</b> Get Help</div>';
+      document.body.appendChild(ed);
+    }
+    var ta = ed.querySelector("textarea");
+    var title = ed.querySelector(".nano-title");
+    title.textContent = "GNU nano 7.2 — " + path + (isNew ? "  (new file)" : "");
+    ta.value = data;
+
+    var dirty = false;
+    function markDirty() { dirty = true; }
+    ta.addEventListener("input", markDirty);
+
+    function close() {
+      ta.removeEventListener("input", markDirty);
+      ta.onkeydown = null;
+      ed.remove();
+      showPrompt();
+      input.focus();
+    }
+    function save(silent) {
+      fs[path] = { type: "file", data: ta.value };
+      var par = parent(path);
+      if (fs[par] && fs[par].kids && fs[par].kids.indexOf(leaf(path)) === -1) fs[par].kids.push(leaf(path));
+      saveState();
+      dirty = false;
+      if (!silent) print("nano: wrote " + ta.value.split("\n").length + " line(s) to " + path);
+    }
+    ta.onkeydown = function (e) {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      var k = e.key.toLowerCase();
+      if (k === "o") {
+        e.preventDefault();
+        save(false);
+        title.textContent = "GNU nano 7.2 — " + path + "  [written]";
+      } else if (k === "x") {
+        e.preventDefault();
+        if (dirty && !confirm("nano: buffer modified — save before exiting?")) return close();
+        if (dirty) save(true);
+        close();
+      } else if (k === "k") {
+        e.preventDefault();
+        var v = ta.value, pos = ta.selectionStart;
+        var start = v.lastIndexOf("\n", pos - 1) + 1;
+        var end = v.indexOf("\n", start);
+        if (end === -1) end = v.length;
+        CMDS.nano.kill = v.slice(start, Math.min(end + 1, v.length));
+        ta.value = v.slice(0, start) + (end < v.length ? v.slice(end + 1) : "");
+        dirty = true;
+      } else if (k === "u") {
+        e.preventDefault();
+        var kill = CMDS.nano.kill || "";
+        if (kill) {
+          var p2 = ta.selectionStart;
+          ta.value = ta.value.slice(0, p2) + kill + ta.value.slice(ta.selectionEnd);
+          ta.setSelectionRange(p2 + kill.length, p2 + kill.length);
+          dirty = true;
+        }
+      } else if (k === "g") {
+        e.preventDefault();
+        print("nano keys: ^O write out · ^X exit · ^K cut line · ^U uncut (paste) · everything else types like normal");
+      }
+    };
+    print((isNew ? "nano: new buffer — " : "nano: editing ") + path + "  (^O save, ^X exit)");
+    input.blur();
+    setTimeout(function () { ta.focus(); }, 50);
+  },
+  vid: function (args) {
+    var exts = /\.(mp4|webm|ogv|m4v|mov|mkv)$/i;
+    function closePlayer(silent) {
+      var box = document.getElementById("vid-box");
+      if (!box) return false;
+      var v = box.querySelector("video");
+      try { v.pause(); v.removeAttribute("src"); v.load(); } catch (e) {}
+      if (box._url) { try { URL.revokeObjectURL(box._url); } catch (e) {} }
+      box.remove();
+      if (!silent) print("vid: player closed.");
+      return true;
+    }
+    function play(name, url, isLocal) {
+      closePlayer(true);
+      var box = document.createElement("div");
+      box.id = "vid-box";
+      box.className = "vidbox";
+      box.innerHTML = '<div class="vid-title"><span></span><button class="vid-close" title="close">✕</button></div><video controls autoplay playsinline></video>';
+      box.querySelector(".vid-title span").textContent = name + (isLocal ? " — from your device" : "");
+      document.body.appendChild(box);
+      box.querySelector(".vid-close").addEventListener("click", function () { closePlayer(false); });
+      var v = box.querySelector("video");
+      if (isLocal) box._url = url;
+      v.src = url;
+      v.onerror = function () { err("vid: could not decode '" + name + "' — this browser may not support that container or codec."); };
+      print("vid: playing " + name + (isLocal ? " straight off your device." : "  ('vid stop' closes the player)"));
+    }
+    if (args[0] === "-h" || args[0] === "--help") return print("usage: vid — pick a video straight off your device | vid <name.mp4> — play from the bucket | vid <https://.../clip.webm> — play a url | vid stop");
+    if (!args[0]) {
+      var picker = document.createElement("input");
+      picker.type = "file";
+      picker.accept = ".mp4,.webm,.ogv,.m4v,.mov,.mkv,video/*";
+      picker.addEventListener("change", function () {
+        var f = picker.files && picker.files[0];
+        if (f) play(f.name, URL.createObjectURL(f), true);
+      });
+      picker.click();
+      return;
+    }
+    var src0 = args[0];
+    if (!exts.test(src0) && src0.indexOf("://") === -1) return err("vid: '" + src0 + "' does not look like a video (mp4, webm, ogv, m4v, mov, mkv)");
+    var name0 = src0.split("/").pop().split("?")[0];
+    var src1 = src0.indexOf("://") !== -1 ? src0 : API + "/api/bucket/" + encodeURIComponent(src0);
+    play(name0, src1, false);
   },
   whoami: function () { print(user); },
   id: function () {
@@ -1515,7 +1712,7 @@ input.addEventListener("keydown", function (e) {
     }
   }
 });
-body.addEventListener("click", function () { input.focus(); });
+body.addEventListener("click", function () { if (!document.getElementById("nano-ed") && !document.getElementById("vid-box")) input.focus(); });
 document.addEventListener("click", function (e) {
   var b = e.target && e.target.closest ? e.target.closest("[data-key]") : null;
   if (!b) return;
