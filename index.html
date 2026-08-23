@@ -16,23 +16,89 @@
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body { height: 100%; touch-action: manipulation; }
   body {
-    background: var(--bg);
+    background: radial-gradient(1300px 900px at 50% 24%, #17181d 0%, #0b0c0f 58%, #060708 100%) fixed;
     color: var(--fg);
-    font-family: Consolas, "Cascadia Mono", "Ubuntu Mono", "Courier New", monospace;
+    font-family: Consolas, "Cascadia Mono", "Ubuntu Mono", "DejaVu Sans Mono", "Liberation Mono", Menlo, monospace;
     font-size: 14px;
-    line-height: 1.6;
+    line-height: 1.5;
+    overflow: hidden;
   }
   ::selection { background: var(--accent); color: #000; }
 
-  .wrap { max-width: 1100px; margin: 0 auto; padding: 0 8px; min-height: 100%; display: flex; flex-direction: column; }
-
-  .term {
-    background: #000;
+  /* ---- the terminal window, sitting on a desktop ---- */
+  .window {
+    position: fixed;
+    inset: 18px;
     display: flex;
     flex-direction: column;
-    height: calc(100vh - 30px);
-    height: calc(100dvh - 30px);
+    background: var(--bg);
+    border: 1px solid #4a4a52;
+    border-radius: 10px;
+    box-shadow: 0 26px 80px rgba(0, 0, 0, .68), 0 3px 10px rgba(0, 0, 0, .5);
+    overflow: hidden;
+    transition: transform .24s ease, opacity .24s ease, inset .15s ease, border-radius .15s ease;
   }
+  .window.max { inset: 0; border-radius: 0; border: 0; }
+  .window.minimized { transform: translateY(105vh) scale(.35); opacity: 0; pointer-events: none; }
+
+  .titlebar {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    height: 34px;
+    padding: 0 12px;
+    background: linear-gradient(#34343b, #29292e);
+    border-bottom: 1px solid #151518;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  .tb-app {
+    display: flex; align-items: center; gap: 7px;
+    color: #b9b9bf; font-size: 11.5px; font-weight: bold; letter-spacing: .2px;
+    flex-shrink: 0;
+  }
+  .tb-app .tico {
+    width: 13px; height: 13px; border-radius: 50%;
+    background: radial-gradient(circle at 34% 28%, #ffd9a8, var(--accent) 72%);
+    box-shadow: 0 0 7px rgba(233, 84, 32, .55);
+  }
+  .tb-title {
+    flex: 1;
+    text-align: center;
+    color: #d2d2d7;
+    font-size: 12.5px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    padding: 0 8px;
+  }
+  .tb-btns { display: flex; align-items: center; gap: 8px; flex-shrink: 0; margin-left: 4px; }
+  .tb-btn {
+    width: 17px; height: 17px; border-radius: 50%;
+    border: 1px solid rgba(0, 0, 0, .5);
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 9.5px; line-height: 1; font-family: inherit;
+    color: transparent;
+    background: linear-gradient(#58585f, #45454c);
+    padding: 0;
+  }
+  .tb-btn:hover { color: #101013; }
+  .tb-btn:active { filter: brightness(.82); }
+  .tb-btn.close { background: linear-gradient(#ef6238, #d84d1e); }
+  .tb-btn.close:hover { background: linear-gradient(#ff7a4d, var(--accent)); }
+
+  /* ---- terminal inside the window ---- */
+  .term {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    position: relative;
+  }
+  .term.bell { animation: bellflash .09s ease; }
+  @keyframes bellflash { 50% { filter: invert(.08); } }
   .term .body {
     flex: 1;
     padding: 12px 14px;
@@ -40,26 +106,60 @@
     white-space: pre-wrap;
     word-break: break-word;
     min-height: 0;
-    user-select: none;
-    -webkit-user-select: none;
+    user-select: text;
+    -webkit-user-select: text;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    scrollbar-color: #37373e transparent;
   }
+  .term .body::-webkit-scrollbar { width: 10px; }
+  .term .body::-webkit-scrollbar-track { background: transparent; }
+  .term .body::-webkit-scrollbar-thumb { background: #33333a; border-radius: 5px; border: 2px solid #000; }
+  .term .body::-webkit-scrollbar-thumb:hover { background: #45454e; }
+
   .vt-line {
-    display: flex; align-items: center; gap: 6px;
-    padding: 8px 14px;
+    display: flex; align-items: center;
+    padding: 8px 14px 10px;
     border-top: 1px solid #1c1c1c;
+    font-size: inherit;
   }
-  .vt-line .prompt { color: var(--fg); white-space: nowrap; }
-  #vt-input {
+  .vt-line .prompt { color: var(--fg); white-space: pre-wrap; word-break: break-word; }
+  .iline {
     flex: 1;
+    position: relative;
+    min-width: 60px;
+    height: 1.5em;
+    line-height: 1.5em;
+    white-space: pre;
+    overflow: hidden;
+    margin-left: 6px;
+  }
+  .iline .ishift { position: absolute; left: 0; top: 0; white-space: pre; will-change: transform; }
+  .iline .cursor {
+    display: inline-block;
+    width: .62em; height: 1.12em;
+    vertical-align: -.16em;
+    background: var(--fg);
+  }
+  html.cur-blink .iline .cursor { animation: blink 1.06s steps(1, start) infinite; }
+  html.cur-idle .iline .cursor { animation: none; background: transparent; box-shadow: inset 0 0 0 1.5px var(--dim); }
+  html.cur-idle.cur-blink .iline .cursor { animation: curfade 1.06s steps(1, start) infinite; }
+  @keyframes curfade { 0%, 49% { opacity: 1; } 50%, 100% { opacity: .45; } }
+  @keyframes blink { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
+  #vt-input {
+    position: absolute;
+    left: 0; top: 0;
+    width: 100%; height: 100%;
     background: transparent;
     border: 0;
     outline: none;
     color: var(--fg);
     font: inherit;
-    font-size: 16px;
     caret-color: var(--fg);
     min-width: 60px;
   }
+  html.mirror #vt-input { color: transparent; caret-color: transparent; }
+  html.mirror #vt-input::selection { background: rgba(233, 84, 32, .25); }
   .keys { display: none; }
   .keys button {
     background: #111;
@@ -73,14 +173,36 @@
   }
   .keys button:active { background: var(--accent); color: #000; }
 
+  .dockpill {
+    position: fixed;
+    left: 14px; bottom: 14px;
+    z-index: 60;
+    display: none;
+    align-items: center; gap: 8px;
+    background: #202027;
+    border: 1px solid #3a3a42;
+    color: #cfcfd4;
+    font-size: 12px;
+    font-family: inherit;
+    padding: 7px 13px;
+    border-radius: 999px;
+    cursor: pointer;
+    box-shadow: 0 8px 22px rgba(0, 0, 0, .5);
+  }
+  .dockpill.on { display: flex; }
+  .dockpill:hover { border-color: var(--accent); }
+
   @media (max-width: 700px) {
+    .window { inset: 8px; border-radius: 8px; }
+    .titlebar { height: 30px; gap: 6px; padding: 0 9px; }
+    .tb-title { font-size: 11.5px; }
     body { font-size: 15px; }
-    .wrap { padding: 0 6px; }
     .term .body { padding: 10px; }
-    .vt-line { padding: 8px 10px; }
+    .vt-line { padding: 8px 10px 10px; }
   }
   @media (pointer: coarse) {
-    .keys { display: flex; gap: 6px; flex-shrink: 0; }
+    .keys { display: flex; gap: 6px; flex-shrink: 0; margin-left: 6px; }
+    body, .vt-line { font-size: 16px; }
   }
 
   .u { color: var(--green); font-weight: 700; }
@@ -94,27 +216,81 @@
   .fatal { color: var(--accent); }
 
   .tmux {
-    position: fixed;
-    left: 0; right: 0; bottom: 0;
-    z-index: 10;
+    flex-shrink: 0;
     display: flex;
     justify-content: space-between;
-    align-items: center;
-    gap: 12px;
-    background: #111;
-    border-top: 1px solid #26262a;
-    color: var(--dim);
-    font-size: 12px;
-    padding: 5px 12px;
+    align-items: stretch;
+    gap: 10px;
+    background: #16161b;
+    border-top: 1px solid #26262c;
+    color: #9a9aa2;
+    font-size: 11.5px;
+    line-height: 1.2;
     user-select: none;
+    -webkit-user-select: none;
+    overflow: hidden;
   }
-  .tmux b { color: var(--fg); font-weight: normal; }
+  .tmux b { color: #d7d7dc; font-weight: normal; }
+  .tseg {
+    display: flex; align-items: center;
+    background: var(--green);
+    color: #07230c;
+    font-weight: bold;
+    letter-spacing: .3px;
+    padding: 4px 9px;
+    white-space: nowrap;
+  }
+  .tseg.win { background: #232329; color: #c9c9cf; }
+  .tright { display: flex; align-items: stretch; min-width: 0; }
+  .tright .cell {
+    display: flex; align-items: center;
+    padding: 0 9px;
+    border-left: 1px solid #26262c;
+    white-space: nowrap;
+  }
+  .tright .cell.dim { color: #6f6f77; }
+  .tright .clk {
+    background: #232329;
+    color: #d7d7dc;
+    font-weight: bold;
+    padding: 4px 10px;
+  }
+  .tleft { display: flex; align-items: stretch; min-width: 0; }
+  .twins { display: flex; align-items: stretch; min-width: 0; overflow: hidden; }
+  .tseg.win {
+    cursor: pointer;
+    border: 0;
+    border-right: 1px solid #101014;
+    background: #232329;
+    color: #b9b9bf;
+    font-weight: normal;
+    font-family: inherit;
+    font-size: inherit;
+    letter-spacing: normal;
+    padding: 4px 9px;
+    white-space: nowrap;
+  }
+  .tseg.win:hover { background: #2d2d35; color: #e8e8ec; }
+  .tseg.win.cur { background: var(--green); color: #07230c; font-weight: bold; }
+  .tnew {
+    background: transparent;
+    border: 0;
+    color: var(--green);
+    font-weight: bold;
+    font-size: 14px;
+    font-family: inherit;
+    line-height: 1;
+    padding: 4px 11px;
+    cursor: pointer;
+  }
+  .tnew:hover { background: #233018; color: #a5e37c; }
+  .tmux.armed #t-sess { background: var(--accent); color: #fff; }
 
   .boot {
     position: fixed;
     inset: 0;
     z-index: 100;
-    background: #000;
+    background: radial-gradient(1300px 900px at 50% 24%, #101014 0%, #060708 70%);
     display: flex;
     flex-direction: column;
     justify-content: center;
@@ -125,16 +301,16 @@
   .boot.done { opacity: 0; pointer-events: none; }
   .boot pre { color: var(--accent); line-height: 1.12; margin-bottom: 24px; text-align: center; }
   .boot pre .peng { color: #d6d6d6; }
-  .boot .log { color: var(--dim); text-align: left; width: 100%; max-width: 720px; font-size: 13px; }
-  .boot .line { animation: fadein .2s ease; }
+  .boot .log { color: var(--dim); text-align: left; width: 100%; max-width: 780px; font-size: 13px; }
+  .boot .line { animation: fadein .2s ease; white-space: pre-wrap; }
   .boot .lbl { color: var(--dim); }
   @keyframes fadein { from { opacity: 0; } to { opacity: 1; } }
 
   /* ---- nano editor overlay ---- */
   .nano {
-    position: fixed;
-    inset: 0 0 30px 0;
-    z-index: 90;
+    position: absolute;
+    inset: 0;
+    z-index: 40;
     background: #000;
     display: flex;
     flex-direction: column;
@@ -177,11 +353,11 @@
 
   /* ---- vid player ---- */
   .vidbox {
-    position: fixed;
-    right: 12px;
-    bottom: 42px;
-    z-index: 95;
-    width: min(480px, calc(100vw - 24px));
+    position: absolute;
+    right: 14px;
+    bottom: 48px;
+    z-index: 45;
+    width: min(480px, calc(100% - 28px));
     background: #0a0a0a;
     border: 1px solid #26262a;
     box-shadow: 0 8px 40px rgba(0, 0, 0, .8);
@@ -204,30 +380,53 @@
 </head>
 <body>
 
-<div class="wrap">
+<div class="window" id="appwin">
+
+  <header class="titlebar">
+    <span class="tb-app"><span class="tico"></span><span>Terminal</span></span>
+    <span class="tb-title" id="wt-title">lunix login:</span>
+    <span class="tb-btns">
+      <button class="tb-btn min" data-wbtn="min" title="minimize" aria-label="minimize window">&#8211;</button>
+      <button class="tb-btn maxb" data-wbtn="max" title="maximize" aria-label="maximize window">&#9633;</button>
+      <button class="tb-btn close" data-wbtn="close" title="poweroff (purges the session)" aria-label="close window">&#10005;</button>
+    </span>
+  </header>
 
   <div class="term">
     <div class="body" id="vt-body"></div>
     <div class="vt-line">
       <span class="prompt" id="vt-prompt"></span>
-      <input id="vt-input" autocomplete="off" autocapitalize="off" spellcheck="false" autocorrect="off" enterkeyhint="send" aria-label="terminal input">
+      <span class="iline" id="vt-iline"><span class="ishift" id="vt-ishift"><span id="vt-mirpre"></span><span class="cursor" id="vt-cursor"></span><span id="vt-mirpost"></span></span><input id="vt-input" autocomplete="off" autocapitalize="off" spellcheck="false" autocorrect="off" enterkeyhint="send" aria-label="terminal input"></span>
       <div class="keys">
+        <button data-key="newshell" aria-label="new shell">+</button>
+        <button data-key="tab" aria-label="tab complete">⇥</button>
         <button data-key="up" aria-label="previous command">↑</button>
         <button data-key="enter" aria-label="enter">⏎</button>
       </div>
     </div>
+
+    <div class="tmux" id="t-bar">
+      <span class="tleft">
+        <span class="tseg" id="t-sess">[lunix]</span>
+        <span class="twins" id="t-wins"></span>
+        <button class="tnew" data-newwin="1" title="new window (Ctrl-B c)" aria-label="new shell">+</button>
+      </span>
+      <span class="tright">
+        <span class="cell">uptime <b id="t-up">0s</b></span>
+        <span class="cell">pkgs <b id="t-pk">0</b></span>
+        <span class="cell dim" id="t-sid">—</span>
+        <span class="cell clk" id="t-clk">--:--</span>
+      </span>
+    </div>
   </div>
 
-  <div class="boot" id="boot">
-    <pre id="boot-banner"></pre>
-    <div class="log" id="boot-log"></div>
-  </div>
+</div>
 
-  <div class="tmux">
-    <span>0:bash* — <b>lunix</b> — simulated install</span>
-    <span>uptime <b id="t-up">0s</b> · pkgs <b id="t-pk">0</b> · session <b id="t-sid">—</b> · poweroff purges</span>
-  </div>
+<button class="dockpill" id="dockpill" title="restore terminal"><span style="color:var(--green);">▲</span> lunix — session alive</button>
 
+<div class="boot" id="boot">
+  <pre id="boot-banner"></pre>
+  <div class="log" id="boot-log"></div>
 </div>
 
 <script>
@@ -245,11 +444,20 @@ var input = document.getElementById("vt-input");
 var promptEl = document.getElementById("vt-prompt");
 var t = function (id, v) { document.getElementById(id).textContent = v; };
 var bootT = Date.now();
-setInterval(function () {
+function pad2(n) { return (n < 10 ? "0" : "") + n; }
+function uptimeStr() {
   var s = Math.floor((Date.now() - bootT) / 1000);
-  t("t-up", s + "s");
+  if (s < 60) return s + "s";
+  var m = Math.floor(s / 60), h = Math.floor(m / 60);
+  return h ? h + "h " + (m % 60) + "m" : m + "m " + (s % 60) + "s";
+}
+setInterval(function () {
+  var d = new Date();
+  t("t-up", uptimeStr());
+  t("t-clk", pad2(d.getHours()) + ":" + pad2(d.getMinutes()));
 }, 1000);
-t("t-sid", SID);
+(function () { var d = new Date(); t("t-clk", pad2(d.getHours()) + ":" + pad2(d.getMinutes())); })();
+t("t-sid", "#" + SID);
 
 var PKGS = {
   bash:        { size: 2.1,  desc: "the bourne again shell. the shell lunix stole its voice from" },
@@ -275,7 +483,8 @@ var PKGS = {
   zsh:         { size: 3.4,  desc: "the shell everyone configures and nobody uses" }
 };
 
-var fs = {
+var STATE_V = 2;
+var DEFAULT_FS = {
   "/": { type: "dir", kids: ["etc", "home", "root", "tmp", "usr", "var"] },
   "/etc": { type: "dir", kids: ["os-release", "hostname", "motd"] },
   "/etc/os-release": { type: "file", data: 'NAME="LUNIX"\nID=lunix\nVERSION_ID="2026.08"\nPRETTY_NAME="LUNIX 2026.08 (browser)"\nHOME_URL="https://lunix.blueberryservices.co.za"\nSUPPORT_URL="https://lunix.blueberryservices.co.za"\nBUG_REPORT_URL="nowhere. it is a feature"\n' },
@@ -288,38 +497,119 @@ var fs = {
   "/usr": { type: "dir", kids: [] },
   "/var": { type: "dir", kids: [] }
 };
+var fs = {};
+for (var k in DEFAULT_FS) fs[k] = DEFAULT_FS[k];
 var cwd = "/home/lunix";
 var user = "lunix";
 var pkgs = {};
 var hist = [];
 
+// rebuild every dir's kids array from the actual key set
+function rekids() {
+  for (var p in fs) if (fs[p].type === "dir") fs[p].kids = [];
+  Object.keys(fs).sort().forEach(function (q) {
+    if (q === "/") return;
+    var par = parent(q);
+    if (fs[par] && fs[par].type === "dir" && fs[par].kids.indexOf(leaf(q)) === -1) fs[par].kids.push(leaf(q));
+  });
+}
+
 try {
-  var saved = sessionStorage.getItem("lunix-state");
-  if (saved) {
-    var s = JSON.parse(saved);
-    var keys = Object.keys(fs);
-    for (var i = 0; i < keys.length; i++) delete fs[keys[i]];
-    for (var k in s.fs) fs[k] = s.fs[k];
-    pkgs = s.pkgs || {};
-    cwd = s.cwd || cwd;
-    user = s.user || user;
+  var saved = JSON.parse(sessionStorage.getItem("lunix-state") || "null");
+  if (saved && saved.fs) {
+    pkgs = saved.pkgs || {};
+    cwd = saved.cwd || cwd;
+    user = saved.user || user;
+    if (saved.v === STATE_V) {
+      for (var sk in fs) delete fs[sk];
+      for (var sk2 in saved.fs) fs[sk2] = saved.fs[sk2];
+    } else {
+      // migration from an older build: keep the user's files, rebuild on top of
+      // the current seed skeleton, and drop dev-test leftovers (tst & friends)
+      var junk = /^\/(home\/lunix|root|tmp)\/(.+\/)?tst$/;
+      for (var sp in saved.fs) {
+        if (junk.test(sp)) continue;
+        if (fs[sp] && fs[sp].type === "dir" && saved.fs[sp].type !== "dir") continue;
+        fs[sp] = saved.fs[sp];
+        if (saved.fs[sp].type === "dir") continue;
+        var par = parent(sp);
+        while (par !== "/" && !fs[par]) { fs[par] = { type: "dir", kids: [] }; par = parent(par); }
+      }
+      rekids();
+      saveState();
+    }
   }
 } catch (e) {}
+
+/* ---- tmux-style windows: each shell owns cwd/user/history/screen ---- */
+var shells = [];
+var activeShell = 0;
+(function initShells() {
+  var savedShells = null, savedAct = 0;
+  try {
+    var raw = JSON.parse(sessionStorage.getItem("lunix-state") || "null");
+    if (raw) { savedShells = raw.shells || null; savedAct = raw.act || 0; }
+  } catch (e6) {}
+  if (savedShells && savedShells.length) {
+    shells = savedShells.map(function (sd) {
+      var s = makeShell();
+      s.name = sd.name || "bash";
+      s.cwd = sd.cwd || s.cwd;
+      s.user = sd.user || "lunix";
+      s.hist = sd.hist || [];
+      return s;
+    });
+    if (savedAct >= 0 && savedAct < shells.length) activeShell = savedAct;
+    var sa = shells[activeShell];
+    cwd = sa.cwd; user = sa.user; hist = sa.hist;
+  } else {
+    shells = [makeShell()];
+    shells[0].cwd = cwd;
+    shells[0].user = user;
+  }
+})();
+
 t("t-pk", Object.keys(pkgs).length);
 
 function saveState() {
   try {
-    sessionStorage.setItem("lunix-state", JSON.stringify({ fs: fs, pkgs: pkgs, cwd: cwd, user: user }));
+    sessionStorage.setItem("lunix-state", JSON.stringify({
+      v: STATE_V,
+      fs: fs,
+      pkgs: pkgs,
+      cwd: cwd,
+      user: user,
+      act: activeShell,
+      shells: shells.map(function (s) {
+        return { name: s.name, cwd: s.cwd, user: s.user, hist: s.hist.slice(-200) };
+      })
+    }));
   } catch (e) {}
 }
 
 var outHook = null;
+var OUT_SHELL = null; /* null = active window; else the shell object a task was born in */
+function boundFn(fn) {
+  var oc = shells[activeShell];
+  return function () {
+    var p = OUT_SHELL;
+    OUT_SHELL = oc;
+    try { return fn.apply(this, arguments); } finally { OUT_SHELL = p; }
+  };
+}
 function out(html) {
   if (outHook) { outHook(html); return; }
-  var div = document.createElement("div");
-  div.innerHTML = html;
-  body.appendChild(div);
-  body.scrollTop = body.scrollHeight;
+  var tgt = OUT_SHELL == null ? shells[activeShell] : OUT_SHELL;
+  if (!tgt || tgt === shells[activeShell]) {
+    var div = document.createElement("div");
+    div.innerHTML = html;
+    body.appendChild(div);
+    body.scrollTop = body.scrollHeight;
+    return;
+  }
+  if (shells.indexOf(tgt) === -1) return; /* its window died */
+  tgt.html += "<div>" + html + "</div>";
+  if (!tgt.act) { tgt.act = true; renderWins(); }
 }
 function esc(s) {
   return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -333,6 +623,24 @@ function printHtml(html) {
 function err(msg) {
   print(msg);
 }
+/* async callbacks keep printing into the window that spawned them */
+(function () {
+  var ctxWrap = function (fn) {
+    if (typeof fn !== "function") return fn;
+    var c = OUT_SHELL;
+    return function () {
+      var p = OUT_SHELL;
+      OUT_SHELL = c;
+      try { return fn.apply(this, arguments); } finally { OUT_SHELL = p; }
+    };
+  };
+  var _st = window.setTimeout;
+  window.setTimeout = function (fn) { var a = Array.prototype.slice.call(arguments); a[0] = ctxWrap(a[0]); return _st.apply(window, a); };
+  var _si = window.setInterval;
+  window.setInterval = function (fn) { var a = Array.prototype.slice.call(arguments); a[0] = ctxWrap(a[0]); return _si.apply(window, a); };
+  var _then = Promise.prototype.then;
+  Promise.prototype.then = function (ok, bad) { return _then.call(this, ctxWrap(ok), ctxWrap(bad)); };
+})();
 function home() {
   return user === "root" ? "/root" : "/home/" + user;
 }
@@ -344,6 +652,12 @@ function promptPath() {
 }
 function promptHtml() {
   return "<span class='u'>" + esc(user) + "@lunix</span>:<span class='p'>" + esc(promptPath()) + "</span>" + (user === "root" ? "#" : "$");
+}
+function syncTitle() {
+  var where = loginMode ? "lunix login:" : user + "@lunix: " + promptPath();
+  var el = document.getElementById("wt-title");
+  if (el) el.textContent = where;
+  document.title = loginMode ? "lunix: login — LUNIX" : "lunix: " + promptPath() + " — LUNIX";
 }
 function typeOf(p) {
   return fs[p] ? (fs[p].type === "dir" ? "dir" : "file") : null;
@@ -377,6 +691,21 @@ function leaf(p) {
   return p === "/" ? "/" : p.slice(p.lastIndexOf("/") + 1);
 }
 function pad(n, w) { return (n + "                    ").slice(0, w); }
+function seedOf(s) {
+  var h = 5381;
+  for (var i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0;
+  return h;
+}
+var MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+function pseudoMtime(p) {
+  var d = new Date(bootT - (seedOf(p) % 7776000000)); /* somewhere in the last ~90 days */
+  return MONTHS[d.getMonth()] + " " + pad2(d.getDate()) + " " + pad2(d.getHours()) + ":" + pad2(d.getMinutes());
+}
+function termCols() {
+  var fsz = parseFloat(getComputedStyle(body).fontSize) || 14;
+  var w = body.clientWidth || 800;
+  return Math.max(20, Math.floor(w / (fsz * 0.62)));
+}
 
 var CMDS = {
   help: function (args) {
@@ -392,11 +721,13 @@ var CMDS = {
       "&nbsp;&nbsp;<span class='accent'>imps</span> [file] — pick a session.slux or zip and bring a previous session back to life (locked archives ask for the password)<br>" +
       "&nbsp;&nbsp;<span class='accent'>music</span> &lt;song&gt;|imps|stop — play audio from the bucket, a url, or straight off your device (mp3, wav, ogg, m4a, aac, flac, opus, webm)<br>" +
       "&nbsp;&nbsp;<span class='accent'>vid</span> [file|url]|stop — watch video straight off your device, from the bucket, or a url (mp4, webm, ogv, m4v, mov, mkv)<br>" +
-      "installed tools light up: <span class='accent'>cowsay</span> <span class='accent'>python3</span> <span class='accent'>git</span> <span class='accent'>node</span> <span class='accent'>htop</span> <span class='accent'>lolcat</span> <span class='accent'>docker</span> ...");
+      "installed tools light up: <span class='accent'>cowsay</span> <span class='accent'>python3</span> <span class='accent'>git</span> <span class='accent'>node</span> <span class='accent'>htop</span> <span class='accent'>lolcat</span> <span class='accent'>docker</span> ...<br>" +
+      "readline keys: <span class='accent'>Tab</span> completes commands &amp; paths · <span class='accent'>↑/↓</span> walks history · <span class='accent'>Ctrl-R</span> reverse search · <span class='accent'>Ctrl-L</span> clears · <span class='accent'>Ctrl-C</span> cancels the line (select output + Ctrl-C still copies) · <span class='accent'>Ctrl-D</span> logs out · <span class='accent'>Ctrl-U/K/W</span> kill line");
   },
   clear: function () { body.innerHTML = ""; },
   ls: function (args) {
-    var la = args.indexOf("-la") !== -1 || args.indexOf("-l") !== -1 || args.indexOf("-al") !== -1;
+    var la = false;
+    for (var f = 0; f < args.length; f++) if (args[f].indexOf("-") === 0 && args[f].indexOf("l") !== -1) la = true;
     var target = "";
     for (var i = 0; i < args.length; i++) if (args[i].indexOf("-") !== 0) target = args[i];
     var tgt = norm(resolve(target || "."));
@@ -404,38 +735,58 @@ var CMDS = {
     if (typeOf(tgt) !== "dir") { print(fs[tgt].data || ""); return; }
     var kids = (fs[tgt].kids || []).slice().sort();
     if (la) {
+      var total = 0;
       for (var k = 0; k < kids.length; k++) {
         var full = (tgt === "/" ? "" : tgt) + "/" + kids[k];
-        if (typeOf(full) === "dir") print("drwxr-xr-x  2 " + user + " " + user + " 4096 <span class='blue'>" + esc(kids[k]) + "</span>");
-        else print("-rw-r--r--  1 " + user + " " + user + " " + pad(String(fs[full].data.length), 4) + " " + esc(kids[k]));
+        total += Math.max(1, Math.ceil((typeOf(full) === "dir" ? 4096 : fs[full].data.length) / 1024));
       }
-      if (target && typeOf(tgt) === "dir") printHtml("<span class='dim'>total " + kids.length + "</span>");
+      printHtml("<span class='dim'>total " + total + "</span>");
+      for (var m = 0; m < kids.length; m++) {
+        var fp = (tgt === "/" ? "" : tgt) + "/" + kids[m];
+        var isDir = typeOf(fp) === "dir";
+        var size = isDir ? 4096 : fs[fp].data.length;
+        var perms = (isDir ? "drwxr-xr-x" : "-rw-r--r--") + "  " + (isDir ? 2 : 1) + " " + pad(user, 8) + pad(user, 8) + pad(String(size), 7);
+        printHtml(perms + pseudoMtime(fp) + " " + (isDir ? "<span class='blue'>" + esc(kids[m]) + "</span>" : esc(kids[m])));
+      }
     } else {
-      var row = [];
-      for (var j = 0; j < kids.length; j++) {
-        var fp = (tgt === "/" ? "" : tgt) + "/" + kids[j];
-        row.push(typeOf(fp) === "dir" ? "<span class='blue'>" + esc(kids[j]) + "</span>" : esc(kids[j]));
+      if (!kids.length) return;
+      var maxw = 0;
+      for (var j2 = 0; j2 < kids.length; j2++) if (kids[j2].length > maxw) maxw = kids[j2].length;
+      var colw = maxw + 2;
+      var cols = Math.max(1, Math.floor(termCols() / colw));
+      var rows = Math.ceil(kids.length / cols);
+      for (var r = 0; r < rows; r++) {
+        var line = [];
+        for (var c = 0; c < cols; c++) {
+          var idx = c * rows + r;
+          if (idx >= kids.length) continue;
+          var nm = kids[idx];
+          var np = (tgt === "/" ? "" : tgt) + "/" + nm;
+          var cell = (typeOf(np) === "dir" ? "<span class='blue'>" + esc(nm) + "</span>" : esc(nm)) + "&nbsp;".repeat(Math.max(1, colw - nm.length));
+          line.push(cell);
+        }
+        printHtml(line.join("").replace(/(&nbsp;)+$/, ""));
       }
-      printHtml(row.join("&nbsp;&nbsp;&nbsp;"));
     }
   },
   cd: function (args) {
-    if (!args.length) {
-      var h = home();
-      if (!exists(h)) {
-        fs[h] = { type: "dir", kids: [] };
-        if (fs["/home"].kids.indexOf(user) === -1) fs["/home"].kids.push(user);
+      if (!args.length) {
+        var h = home();
+        if (!exists(h)) {
+          fs[h] = { type: "dir", kids: [] };
+          if (fs["/home"].kids.indexOf(user) === -1) fs["/home"].kids.push(user);
+        }
+        cwd = h;
+        promptEl.innerHTML = promptHtml();
+        syncTitle();
+        return saveState();
       }
-      cwd = h;
-      promptEl.innerHTML = promptHtml();
-      return saveState();
-    }
     var tgt = norm(resolve(args[0]));
     if (!exists(tgt)) return err("cd: no such file or directory: " + args[0]);
     if (typeOf(tgt) !== "dir") return err("cd: not a directory: " + args[0]);
     cwd = tgt;
     promptEl.innerHTML = promptHtml();
-    document.title = "lunix: " + promptPath() + " — LUNIX";
+    syncTitle();
     saveState();
   },
   pwd: function () { print(cwd); },
@@ -547,6 +898,8 @@ var CMDS = {
     if (args[0] === "-h" || args[0] === "--help") return print("usage: nano <file> — edit a file in the virtual filesystem (^O write out, ^X exit, ^K cut line, ^U uncut, ^G help)");
     var path = norm(resolve(args[0] || "untitled.txt"));
     if (exists(path) && typeOf(path) === "dir") return err("nano: " + (args[0] || path) + ": is a directory");
+    var par0 = parent(path);
+    if (!exists(par0) || typeOf(par0) !== "dir") return err("nano: directory '" + par0 + "' does not exist");
     var isNew = !exists(path);
     var data = isNew ? "" : fs[path].data;
 
@@ -646,8 +999,8 @@ var CMDS = {
       box.querySelector(".vid-close").addEventListener("click", function () { closePlayer(false); });
       var v = box.querySelector("video");
       if (isLocal) box._url = url;
-      v.src = url;
       v.onerror = function () { err("vid: could not decode '" + name + "' — this browser may not support that container or codec."); };
+      v.src = url;
       print("vid: playing " + name + (isLocal ? " straight off your device." : "  ('vid stop' closes the player)"));
     }
     if (args[0] === "-h" || args[0] === "--help") return print("usage: vid — pick a video straight off your device | vid <name.mp4> — play from the bucket | vid <https://.../clip.webm> — play a url | vid stop");
@@ -655,14 +1008,15 @@ var CMDS = {
       var picker = document.createElement("input");
       picker.type = "file";
       picker.accept = ".mp4,.webm,.ogv,.m4v,.mov,.mkv,video/*";
-      picker.addEventListener("change", function () {
+      picker.addEventListener("change", boundFn(function () {
         var f = picker.files && picker.files[0];
         if (f) play(f.name, URL.createObjectURL(f), true);
-      });
+      }));
       picker.click();
       return;
     }
     var src0 = args[0];
+    if (src0.indexOf("://") === -1 && src0.indexOf("/") !== -1) return err("vid: bucket files are flat — 'vid clip.mp4', or pass a full url for anything else");
     if (!exts.test(src0) && src0.indexOf("://") === -1) return err("vid: '" + src0 + "' does not look like a video (mp4, webm, ogv, m4v, mov, mkv)");
     var name0 = src0.split("/").pop().split("?")[0];
     var src1 = src0.indexOf("://") !== -1 ? src0 : API + "/api/bucket/" + encodeURIComponent(src0);
@@ -700,6 +1054,7 @@ var CMDS = {
       if (user === "root") return print("you are already root. root is a state of mind.");
       user = "root";
       promptEl.innerHTML = promptHtml();
+      syncTitle();
       saveState();
       return print("root # (careful, you are unstoppable now)");
     }
@@ -707,18 +1062,22 @@ var CMDS = {
   },
   exit: function () {
     print("logout");
+    if (killShell(activeShell)) return;
     user = "lunix";
     cwd = "/home/lunix";
     saveState();
     showLogin();
   },
   reboot: function () {
-fixState();
-loadInstalled();
-boot();
+    fixState();
+    loadInstalled();
+    shells = [makeShell()];
+    activeShell = 0;
+    renderWins();
+    boot();
   },
   history: function () {
-    for (var i = 0; i < hist.length; i++) print("  " + (i + 1) + "  " + hist[i]);
+    for (var i = 0; i < hist.length; i++) print(("    " + (i + 1)).slice(-5) + "  " + hist[i]);
   },
   ping: function (args) {
     var opts = { count: 4, interval: 1, size: 56, ttl: null, quiet: false, host: null };
@@ -1068,7 +1427,7 @@ boot();
     var picker = document.createElement("input");
     picker.type = "file";
     picker.accept = ".slux,.zip,application/octet-stream,application/zip";
-    picker.addEventListener("change", function () {
+    picker.addEventListener("change", boundFn(function () {
       var f = picker.files && picker.files[0];
       if (!f) return;
       var rd = new FileReader();
@@ -1078,7 +1437,7 @@ boot();
         else applySession(new TextDecoder().decode(b));
       };
       rd.readAsArrayBuffer(f);
-    });
+    }));
     picker.click();
   },
   music: function (args) {
@@ -1096,7 +1455,7 @@ boot();
       var picker = document.createElement("input");
       picker.type = "file";
       picker.accept = ".mp3,.wav,.ogg,.oga,.m4a,.aac,.flac,.opus,.webm,audio/*";
-      picker.addEventListener("change", function () {
+      picker.addEventListener("change", boundFn(function () {
         var f = picker.files && picker.files[0];
         if (!f) return;
         if (!/\.(mp3|wav|ogg|oga|m4a|aac|flac|opus|webm)$/i.test(f.name)) {
@@ -1110,7 +1469,7 @@ boot();
         }).catch(function () {
           err("music: could not play " + f.name + " — this browser may not decode that format.");
         });
-      });
+      }));
       picker.click();
       return;
     }
@@ -1322,6 +1681,12 @@ function endIt() {
   print("powering off...");
   try { sessionStorage.removeItem("lunix-state"); } catch (e) {}
   pkgs = {};
+  user = "lunix";
+  cwd = "/home/lunix";
+  hist = [];
+  shells = [makeShell()];
+  activeShell = 0;
+  renderWins();
   setTimeout(boot, 900);
 }
 
@@ -1347,8 +1712,12 @@ function handleCmd(raw) {
       captured = [];
       outHook = function (h) { captured.push(h); };
     }
-    if (CMDS[cmd]) CMDS[cmd](clean);
-    else err(cmd + ": command not found. the void does not know " + cmd + ". try: help");
+    var prevCtx = OUT_SHELL;
+    OUT_SHELL = shells[activeShell];
+    try {
+      if (CMDS[cmd]) CMDS[cmd](clean);
+      else err(cmd + ": command not found. the void does not know " + cmd + ". try: help");
+    } finally { OUT_SHELL = prevCtx; }
     if (rmode) {
       outHook = null;
       var text = captured.join("\n").replace(/<[^>]+>/g, "").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&#39;/g, "'").replace(/&quot;/g, '"');
@@ -1529,7 +1898,7 @@ function applySession(txt) {
     eval(meta.code);
   } catch (e) { return err("imps: failed to import session: " + e.message); }
   promptEl.innerHTML = promptHtml();
-  document.title = "lunix: " + promptPath() + " — LUNIX";
+  syncTitle();
   print("imps: session " + SID + " imported. welcome back.");
 }
 
@@ -1590,16 +1959,24 @@ function importZipLocked(sessEntry, media) {
   attempt();
 }
 
+/* kernel ring-buffer phase uses {t}, systemd phase uses {ok}/{fatal}/{m} */
 var BOOT_LINES = [
-  { t: "0.000000", m: "LUNIX BIOS 4.05.23 © BlueberryServices Systems Inc.", ok: true },
-  { t: "0.141592", m: "Memory: 512MiB of pure browser RAM, 0MiB of doubt", ok: true },
-  { t: "0.314159", m: "Kernel 6.6.browser-0-lunix booted from 0 sectors of pure vibes", ok: true },
-  { t: "0.462626", m: "Mounted /proc, /sys, /dev — imaginary but ok", ok: true },
-  { t: "0.618033", m: "Network: eth0 up, 0ms latency. the internet lives here now", ok: true },
-  { t: "0.777215", m: "Started apk index: " + Object.keys(PKGS).length + " packages. that is all of them", ok: true },
-  { t: "0.931251", m: "sudoers: lunix is NOT in the sudoers file", fatal: true },
-  { t: "1.045040", m: "Reached target: Getting Stuff Done (temporarily)", ok: true },
-  { t: "1.200001", m: "The purge daemon is loaded. it is patient. it is always watching", ok: true }
+  { t: "0.000000", m: "Linux version 6.8.12-lunix (builder@lunix) (x86_64-linux-gnu-gcc 13.2.0, GNU ld 2.42) #1 SMP PREEMPT_DYNAMIC" },
+  { t: "0.000000", m: "Command line: BOOT_IMAGE=/vmlinuz-lunix root=/dev/vda1 ro console=tty1" },
+  { t: "0.033671", m: "BIOS-provided physical RAM map: 512MiB usable" },
+  { t: "0.104892", m: "Memory: 498MiB/512MiB available (kernel allocations: vibes)" },
+  { t: "0.221745", m: "PCI: probing root bridge — 1 device found (virtio)" },
+  { t: "0.387214", m: "EXT4-fs (vda1): mounted filesystem with ordered data mode" },
+  { t: "0.415098", m: "random: crng init done" },
+  { ok: true, m: "Started Journal Service." },
+  { ok: true, m: "Mounted /proc, /sys and /dev." },
+  { ok: true, m: "Reached target Local File Systems." },
+  { ok: true, m: "Started Network Service (eth0, link is up)." },
+  { ok: true, m: "Reached target Network." },
+  { m: "Starting Login Service..." },
+  { ok: true, m: "Started Login Service on tty1." },
+  { fatal: true, m: "Failed to start Sudo Service (user 'lunix' is NOT in the sudoers file)." },
+  { ok: true, m: "Reached target Multi-User System." }
 ];
 
 function boot() {
@@ -1631,18 +2008,29 @@ function boot() {
     var l = BOOT_LINES[i++];
     var d = document.createElement("div");
     d.className = "line";
-    var status = l.ok ? "[  OK  ] " : l.fatal ? "[ DENY ] " : "        ";
-    var color = l.ok ? "ok" : l.fatal ? "fatal" : "";
-    d.innerHTML = "[    " + l.t + "] " + (color ? "<span class='" + color + "'>" + status + "</span>" : status) + "<span class='lbl'>" + esc(l.m) + "</span>";
+    if (l.t) {
+      /* kernel ring-buffer line: right-aligned timestamp in a 12-char field */
+      d.innerHTML = "<span class='lbl'>[" + ("            " + l.t).slice(-12) + "]</span> " + esc(l.m);
+    } else if (l.ok || l.fatal) {
+      var st = l.ok ? "[  OK  ]" : "[FAILED]";
+      var col = l.ok ? "ok" : "fatal";
+      d.innerHTML = "<span class='" + col + "'>" + st + "</span> " + esc(l.m);
+    } else {
+      /* "Starting X..." — indented to align under the unit status column */
+      d.innerHTML = "<span class='lbl'>         </span>" + esc(l.m);
+    }
     log.appendChild(d);
-  }, 280);
+  }, 130);
 }
 
 function showLogin() {
-  print("");
+  /* /etc/issue — what a real tty prints above the login prompt */
+  print("LUNIX 2026.08 (browser) lunix tty1");
   loginMode = true;
   promptEl.innerHTML = "lunix login: ";
   input.value = "";
+  histIdx = null;
+  syncTitle();
   input.focus();
 }
 
@@ -1650,15 +2038,20 @@ function showPrompt() {
   loginMode = false;
   promptEl.innerHTML = promptHtml();
   input.value = "";
+  histIdx = null;
+  draftLine = "";
+  syncTitle();
   input.focus();
 }
 
 var loginMode = true;
 
 var pwPending = null;
+var pwFromLogin = false;
 function askPw(label, cb) {
   print(label);
   pwPending = cb;
+  pwFromLogin = loginMode;
   input.type = "password";
   input.value = "";
   input.focus();
@@ -1673,8 +2066,390 @@ function askPwTwice(what, cb) {
   });
 }
 
+/* ---- tmux windows: snapshot / load / create / kill ---- */
+function makeShell() {
+  return {
+    name: "bash",
+    cwd: home(),
+    user: user,
+    hist: [],
+    histIdx: null,
+    draftLine: "",
+    html: "",
+    scrollTop: 0,
+    line: ""
+  };
+}
+function snapActive() {
+  var s = shells[activeShell];
+  if (!s) return;
+  s.cwd = cwd;
+  s.user = user;
+  s.hist = hist;
+  s.histIdx = histIdx;
+  s.draftLine = draftLine;
+  s.html = body.innerHTML;
+  s.scrollTop = body.scrollTop;
+  s.line = input.value;
+}
+function renderWins() {
+  var el = document.getElementById("t-wins");
+  if (!el) return;
+  var h = "";
+  for (var i = 0; i < shells.length; i++) {
+    var cur = i === activeShell;
+    var tag = cur ? "*" : (shells[i].act ? "<span style=\"color:#ffb27a\">!</span>" : "-");
+    h += "<button class='tseg win" + (cur ? " cur" : "") + "' data-shell='" + i + "' title='window " + i + "'>"
+      + i + ":" + esc(shells[i].name) + tag + "</button>";
+  }
+  el.innerHTML = h;
+}
+function loadShell(i) {
+  activeShell = i;
+  var s = shells[i];
+  s.act = false;
+  cwd = s.cwd;
+  user = s.user;
+  hist = s.hist;
+  histIdx = s.histIdx;
+  draftLine = s.draftLine;
+  body.innerHTML = s.html;
+  body.scrollTop = s.scrollTop || body.scrollHeight;
+  input.value = s.line || "";
+  promptEl.innerHTML = promptHtml();
+  renderWins();
+  syncTitle();
+  caretEnd();
+  input.focus();
+}
+function switchShell(i) {
+  if (i === activeShell || i < 0 || i >= shells.length) return;
+  snapActive();
+  loadShell(i);
+}
+function addShell() {
+  if (shells.length >= 10) { bellFlash(); return; }
+  snapActive();
+  shells.push(makeShell());
+  loadShell(shells.length - 1);
+}
+function killShell(i) {
+  if (shells.length <= 1) return false;
+  var next = i === 0 ? 1 : i - 1;
+  shells.splice(i, 1);
+  activeShell = -1; /* do not snapshot the corpse */
+  loadShell(Math.min(next, shells.length - 1));
+  saveState();
+  return true;
+}
+
+/* ---- readline-style editing, history, completion, search ---- */
+var histIdx = null;
+var draftLine = "";
+
+function caretEnd() {
+  var l = input.value.length;
+  try { input.setSelectionRange(l, l); } catch (e2) {}
+  drawCaret();
+}
+
+function histStep(dir) {
+  if (!hist.length) return;
+  if (histIdx === null) {
+    if (dir > 0) return;
+    draftLine = input.value;
+    histIdx = hist.length - 1;
+  } else {
+    histIdx += dir;
+    if (histIdx >= hist.length) { histIdx = null; input.value = draftLine; caretEnd(); return; }
+    if (histIdx < 0) histIdx = 0;
+  }
+  input.value = hist[histIdx];
+  caretEnd();
+}
+
+function wordKill() {
+  var pos = input.selectionEnd;
+  if (pos == null) pos = input.value.length;
+  var m = input.value.slice(0, pos).match(/\s*\S+\s*$/);
+  if (!m) return;
+  input.value = input.value.slice(0, m.index) + input.value.slice(pos);
+  input.setSelectionRange(m.index, m.index);
+  drawCaret();
+}
+
+function selInOutput() {
+  try {
+    var s = document.getSelection();
+    return !!(s && s.rangeCount && !s.isCollapsed && body.contains(s.anchorNode));
+  } catch (e3) { return false; }
+}
+
+function bellFlash() {
+  var tm = document.querySelector(".term");
+  if (!tm) return;
+  tm.classList.remove("bell");
+  void tm.offsetWidth;
+  tm.classList.add("bell");
+}
+
+function lcpOf(arr) {
+  if (!arr.length) return "";
+  var p = arr[0];
+  for (var i = 1; i < arr.length; i++) {
+    var j = 0;
+    while (j < p.length && j < arr[i].length && p[j] === arr[i][j]) j++;
+    p = p.slice(0, j);
+  }
+  return p;
+}
+
+function completeInput() {
+  var v = input.value;
+  var trailing = /\s$/.test(v);
+  var toks = v.match(/"[^"]*"|\S+/g) || [];
+  var cand = [], partial = "";
+  if (toks.length === 0 || (toks.length === 1 && !trailing)) {
+    partial = toks[0] || "";
+    cand = Object.keys(CMDS).filter(function (n) { return n.indexOf(partial) === 0 && n !== partial; }).sort();
+  } else {
+    partial = trailing ? "" : toks[toks.length - 1];
+    var slash = partial.lastIndexOf("/");
+    var dirPart = slash >= 0 ? partial.slice(0, slash + 1) : "";
+    var namePart = slash >= 0 ? partial.slice(slash + 1) : partial;
+    var base = norm(resolve(dirPart || "."));
+    if (exists(base) && typeOf(base) === "dir") {
+      cand = (fs[base].kids || []).filter(function (n) { return n.indexOf(namePart) === 0; }).sort().map(function (n) {
+        var full = dirPart + n;
+        return full + (typeOf(norm(resolve(full))) === "dir" ? "/" : "");
+      });
+    }
+  }
+  if (!cand.length) return bellFlash();
+  var lcp = lcpOf(cand);
+  if (cand.length === 1 && lcp.slice(-1) !== "/") lcp += " ";
+  if (lcp.length > partial.length || (trailing && lcp)) {
+    input.value = trailing ? v + lcp : v.slice(0, v.length - partial.length) + lcp;
+    caretEnd();
+  } else if (cand.length > 1) {
+    printHtml("<span class='dim'>" + cand.map(esc).join("&nbsp;&nbsp;") + "</span>");
+  }
+}
+
+/* ---- reverse-i-search ---- */
+var rsOn = false, rsQ = "", rsBack = "", rsAt = -1;
+function rsFind(from) {
+  if (!rsQ) return -1;
+  for (var i = from; i >= 0; i--) if (hist[i].indexOf(rsQ) !== -1) return i;
+  return -1;
+}
+function rsUpdate(startFrom) {
+  rsAt = rsQ ? rsFind(typeof startFrom === "number" ? startFrom : hist.length - 1) : -1;
+  input.value = rsAt >= 0 ? hist[rsAt] : rsBack;
+  promptEl.innerHTML = "<span class='dim'>(reverse-i-search)`</span>" + esc(rsQ) + "<span class='dim'>':</span>";
+  caretEnd();
+}
+function rsStart() {
+  if (loginMode || pwPending || !hist.length) return;
+  rsOn = true; rsQ = ""; rsBack = input.value; rsAt = -1;
+  rsUpdate();
+}
+function rsExit(restore) {
+  rsOn = false;
+  if (restore) input.value = rsBack;
+  promptEl.innerHTML = promptHtml();
+  caretEnd();
+}
+
+/* ---- login ---- */
+function loginSubmit(v) {
+  var uname = v.trim() || "lunix";
+  print("lunix login: " + (v.trim() || "lunix"));
+  user = uname;
+  var hd = home();
+  if (!exists(hd)) {
+    fs[hd] = { type: "dir", kids: [] };
+    if (fs["/home"].kids.indexOf(uname) === -1) fs["/home"].kids.push(uname);
+  }
+  cwd = hd;
+  print("Last login: " + new Date().toString() + " on pts/0");
+  print(fs["/etc/motd"].data.replace(/\n$/, ""));
+  saveState();
+  showPrompt();
+}
+
+/* ---- block cursor: the input's text is mirrored, the real caret is hidden ---- */
+var mirPre = document.getElementById("vt-mirpre");
+var mirPost = document.getElementById("vt-mirpost");
+var curEl = document.getElementById("vt-cursor");
+var shiftEl = document.getElementById("vt-ishift");
+var ilineEl = document.getElementById("vt-iline");
+var mirSig = "";
+
+function drawCaret() {
+  if (!document.documentElement.classList.contains("mirror")) return;
+  try {
+    var v = input.value;
+    var pos = typeof input.selectionStart === "number" ? input.selectionStart : v.length;
+    var hidden = input.type === "password";
+    mirPre.textContent = hidden ? "" : v.slice(0, pos);
+    mirPost.textContent = hidden ? "" : v.slice(pos);
+    var over = mirPre.offsetWidth + curEl.offsetWidth - ilineEl.clientWidth;
+    shiftEl.style.transform = over > 1 ? "translateX(" + (-over - 1) + "px)" : "translateX(0)";
+    var sig = v + "|" + pos + "|" + hidden;
+    if (sig !== mirSig) {
+      mirSig = sig;
+      curEl.style.animation = "none";
+      void curEl.offsetHeight;
+      curEl.style.animation = "";
+    }
+  } catch (e4) {}
+}
+function initMirrors() {
+  try {
+    if (!mirPre || !mirPost || !curEl || !shiftEl || !ilineEl) return;
+    var de = document.documentElement;
+    de.classList.add("mirror");
+    de.classList.add("cur-blink");
+    de.classList.add("cur-idle");
+    drawCaret();
+  } catch (e5) {}
+}
+input.addEventListener("focus", function () {
+  document.documentElement.classList.remove("cur-idle");
+  drawCaret();
+});
+input.addEventListener("blur", function () {
+  document.documentElement.classList.add("cur-idle");
+  drawCaret();
+});
+["input", "select", "click", "keyup"].forEach(function (ev) {
+  input.addEventListener(ev, drawCaret);
+});
+input.addEventListener("keydown", function () { setTimeout(drawCaret, 0); });
+
+/* ---- the main key handler ---- */
+var tmuxPrefix = false;
 input.addEventListener("keydown", function (e) {
-  if (e.key === "Enter") {
+  var k = e.key || "", ckey = k.toLowerCase(), ctrl = e.ctrlKey && !e.altKey && !e.metaKey;
+
+  /* tmux prefix: Ctrl-B, then c / n / p / 0-9 */
+  if (tmuxPrefix) {
+    tmuxPrefix = false;
+    document.getElementById("t-bar").classList.remove("armed");
+    e.preventDefault();
+    if (ctrl || e.metaKey || e.altKey) return;
+    if (k === "c") addShell();
+    else if (k === "n") switchShell((activeShell + 1) % shells.length);
+    else if (k === "p") switchShell((activeShell - 1 + shells.length) % shells.length);
+    else if (k === "&") killShell(activeShell);
+    else if (/^[0-9]$/.test(k)) {
+      if (+k < shells.length) switchShell(+k);
+      else bellFlash();
+    }
+    return;
+  }
+  if (ctrl && ckey === "b" && !e.shiftKey && !loginMode && !pwPending && !rsOn) {
+    tmuxPrefix = true;
+    e.preventDefault();
+    document.getElementById("t-bar").classList.add("armed");
+    setTimeout(function () { tmuxPrefix = false; document.getElementById("t-bar").classList.remove("armed"); }, 1500);
+    return;
+  }
+
+  if (rsOn) {
+    if (k === "Escape" || (ctrl && (ckey === "c" || ckey === "g"))) {
+      e.preventDefault();
+      rsExit(true);
+      return;
+    }
+    if (k === "Enter") {
+      e.preventDefault();
+      var acc = input.value;
+      rsOn = false;
+      printHtml(promptHtml() + " " + esc(acc));
+      handleCmd(acc);
+      if (!loginMode && !pwPending && input.type !== "password") showPrompt();
+      return;
+    }
+    if (ctrl && ckey === "r") {
+      e.preventDefault();
+      rsUpdate(rsAt >= 0 ? rsAt - 1 : hist.length - 1);
+      return;
+    }
+    if (k === "Backspace") {
+      e.preventDefault();
+      rsQ = rsQ.slice(0, -1);
+      rsUpdate(hist.length - 1);
+      return;
+    }
+    if (!ctrl && !e.metaKey && !e.altKey && k.length === 1) {
+      e.preventDefault();
+      rsQ += k;
+      rsUpdate(hist.length - 1);
+      return;
+    }
+    if (k === "ArrowUp" || k === "ArrowDown") { e.preventDefault(); return; }
+    if (k === "ArrowLeft" || k === "ArrowRight" || k === "Home" || k === "End") rsExit(false);
+    return;
+  }
+
+  if (ctrl) {
+    if (ckey === "c" && selInOutput()) return; /* let the browser copy the selected output */
+    switch (ckey) {
+      case "c":
+        e.preventDefault();
+        printHtml((loginMode ? "lunix login: " + esc(input.value) : promptHtml() + " " + esc(input.value)) + "<span class='dim'>^C</span>");
+        if (pwPending) { pwPending = null; input.type = "text"; if (pwFromLogin) showLogin(); else showPrompt(); }
+        else { input.value = ""; caretEnd(); }
+        return;
+      case "l":
+        e.preventDefault();
+        body.innerHTML = "";
+        return;
+      case "u": {
+        e.preventDefault();
+        var pu = input.selectionStart || 0;
+        input.value = input.value.slice(pu);
+        input.setSelectionRange(0, 0);
+        drawCaret();
+        return;
+      }
+      case "k": {
+        e.preventDefault();
+        var pk = input.selectionStart || 0;
+        input.value = input.value.slice(0, pk);
+        input.setSelectionRange(pk, pk);
+        drawCaret();
+        return;
+      }
+      case "w":
+        e.preventDefault();
+        wordKill();
+        return;
+      case "a":
+        e.preventDefault();
+        input.setSelectionRange(0, 0);
+        drawCaret();
+        return;
+      case "e": {
+        e.preventDefault();
+        var pe = input.value.length;
+        input.setSelectionRange(pe, pe);
+        drawCaret();
+        return;
+      }
+      case "r":
+        e.preventDefault();
+        rsStart();
+        return;
+      case "d":
+        if (!input.value && !loginMode && !pwPending) { e.preventDefault(); CMDS.exit(); }
+        return;
+    }
+  }
+
+  if (k === "Enter") {
     e.preventDefault();
     var v = input.value;
     if (pwPending) {
@@ -1685,45 +2460,73 @@ input.addEventListener("keydown", function (e) {
       cb(v);
       return;
     }
-    if (loginMode) {
-      var uname = v.trim() || "lunix";
-      print("lunix login: " + (v.trim() || "lunix"));
-      user = uname;
-      var hd = home();
-      if (!exists(hd)) {
-        fs[hd] = { type: "dir", kids: [] };
-        if (fs["/home"].kids.indexOf(uname) === -1) fs["/home"].kids.push(uname);
-      }
-      cwd = hd;
-      print("Last login: " + new Date().toString() + " on pts/0");
-      print(fs["/etc/motd"].data.replace(/\n$/, ""));
-      saveState();
-      showPrompt();
-      return;
-    }
+    if (loginMode) { loginSubmit(v); return; }
     printHtml(promptHtml() + " " + esc(v));
     handleCmd(v);
-    showPrompt();
-  } else if (e.key === "ArrowUp") {
-    e.preventDefault();
-    if (hist.length) {
-      input.value = hist[hist.length - 1];
-      input.setSelectionRange(input.value.length, input.value.length);
-    }
+    /* exit/poweroff/askPw may have taken over the line — only redraw when still shelling */
+    if (!loginMode && !pwPending && input.type !== "password") showPrompt();
+    return;
   }
+  if (k === "ArrowUp") { e.preventDefault(); histStep(-1); return; }
+  if (k === "ArrowDown") { e.preventDefault(); histStep(1); return; }
+  if (k === "Tab") { e.preventDefault(); completeInput(); return; }
 });
-body.addEventListener("click", function () { if (!document.getElementById("nano-ed") && !document.getElementById("vid-box")) input.focus(); });
+
+body.addEventListener("click", function () {
+  if (document.getElementById("nano-ed") || document.getElementById("vid-box")) return;
+  if (selInOutput()) return;
+  input.focus();
+});
 document.addEventListener("click", function (e) {
   var b = e.target && e.target.closest ? e.target.closest("[data-key]") : null;
   if (!b) return;
   e.preventDefault();
   var k = b.getAttribute("data-key");
-  if (k === "up" && hist.length) {
-    input.value = hist[hist.length - 1];
-    input.setSelectionRange(input.value.length, input.value.length);
-  } else if (k === "enter") {
-    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+  if (k === "up") histStep(-1);
+  else if (k === "tab") { input.focus(); completeInput(); }
+  else if (k === "newshell") addShell();
+  else if (k === "enter") input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+  input.focus();
+});
+document.addEventListener("click", function (e) {
+  var nb = e.target && e.target.closest ? e.target.closest("[data-newwin]") : null;
+  if (nb) {
+    e.preventDefault();
+    addShell();
+    input.focus();
+    return;
   }
+  var sb = e.target && e.target.closest ? e.target.closest("[data-shell]") : null;
+  if (!sb) return;
+  e.preventDefault();
+  switchShell(parseInt(sb.getAttribute("data-shell"), 10));
+  input.focus();
+});
+
+/* ---- title bar buttons ---- */
+document.addEventListener("click", function (e) {
+  var b = e.target && e.target.closest ? e.target.closest("[data-wbtn]") : null;
+  if (!b) return;
+  e.preventDefault();
+  var act = b.getAttribute("data-wbtn");
+  var win = document.getElementById("appwin");
+  var pill = document.getElementById("dockpill");
+  if (!win) return;
+  if (act === "close") {
+    if (confirm("poweroff lunix?\n\nthis purges the whole session — everything dies with the tab.")) endIt();
+  } else if (act === "max") {
+    win.classList.toggle("max");
+    input.focus();
+  } else if (act === "min") {
+    win.classList.add("minimized");
+    if (pill) pill.classList.add("on");
+  }
+});
+var dockPill = document.getElementById("dockpill");
+if (dockPill) dockPill.addEventListener("click", function () {
+  var win = document.getElementById("appwin");
+  if (win) win.classList.remove("minimized");
+  dockPill.classList.remove("on");
   input.focus();
 });
 
@@ -1781,6 +2584,8 @@ window.addEventListener("beforeunload", function () {
   /* sessionStorage dies with the tab on its own. that is the purge. */
 });
 
+renderWins();
+initMirrors();
 boot();
 </script>
 </body>

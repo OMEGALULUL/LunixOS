@@ -19,6 +19,10 @@ const cors = { "Access-Control-Allow-Origin": "*" };
 const SESSION_RE = /^[A-Z0-9]{6,16}$/;
 const MAX_UPLOAD = 2.5 * 1024 * 1024 * 1024;
 
+// this deployment's youtube converter — tools like ytc discover it via /api/config,
+// so swapping the converter here is all a self-hoster ever touches.
+const YTC_UPSTREAM = "https://ytc.blueberryservices.co.za";
+
 function trustedOrigin(request) {
   const origin = request.headers.get("Origin");
   if (!origin) return true; // curl / non-browser / same-origin GET
@@ -175,6 +179,53 @@ export default {
       }
 
       return reject(405, "method not allowed");
+    }
+
+    // ---- config discovery — installed tools learn this deployment's infra ----
+    if (p === "/api/config") {
+      if (request.method === "OPTIONS") return preflight();
+      if (!trustedOrigin(request)) return reject(403, "cross-origin request denied");
+      if (request.method !== "GET") return reject(405, "method not allowed");
+      return json({
+        ytcProxy: "/api/ytc",
+        ytcUpstream: YTC_UPSTREAM
+      });
+    }
+
+    // ---- ytc proxy — youtube converter relay ----
+    // the sim calls /api/ytc/* same-origin; the worker forwards to the self-hosted
+    // yt-dlp+ffmpeg converter, which has no CORS of its own.
+    if (p.startsWith("/api/ytc/")) {
+      if (request.method === "OPTIONS") return preflight();
+      if (!trustedOrigin(request)) return reject(403, "cross-origin request denied");
+      if (!["GET", "POST"].includes(request.method)) return reject(405, "method not allowed");
+
+      const sub = p.slice("/api/ytc/".length); // info | jobs | jobs/<id> | download/<id>
+      if (!sub || sub.includes("..")) return reject(400, "bad path");
+      const target = sub.startsWith("download/")
+        ? YTC_UPSTREAM + "/" + sub
+        : YTC_UPSTREAM + "/api/" + sub;
+
+      const init = { method: request.method, redirect: "follow" };
+      if (request.method === "POST") {
+        init.body = request.body;
+        init.headers = { "Content-Type": request.headers.get("Content-Type") || "application/json" };
+      }
+
+      let upstream;
+      try {
+        upstream = await fetch(target, init);
+      } catch {
+        return reject(502, "converter unreachable");
+      }
+
+      const headers = new Headers();
+      headers.set("Content-Type", upstream.headers.get("Content-Type") || "application/octet-stream");
+      const cd = upstream.headers.get("Content-Disposition");
+      if (cd) headers.set("Content-Disposition", cd);
+      headers.set("Cache-Control", "no-store");
+      for (const [k, v] of Object.entries(security)) headers.set(k, v);
+      return new Response(upstream.body, { status: upstream.status, headers });
     }
 
     const mimes = {

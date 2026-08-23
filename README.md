@@ -33,15 +33,21 @@ a simulated linux, living entirely in your browser. everything you install dies 
 LUNIX is a fully self-contained, dependency-free browser terminal that simulates a CLI linux install 1:1:
 
 - systemd-style boot sequence (figlet banner, `[    0.000000] [  OK  ]` log lines)
-- `lunix login:` → `Last login:` → `/etc/motd` → bash prompt
+- `lunix login:` → `Last login:` → `/etc/motd` → bash prompt (no password — just a username)
 - prompt is a real install's prompt: `user@lunix:~/path$` (green user, blue path, `#` as root)
-- a working virtual filesystem (`ls -l`, `cd`, `cat`, `mkdir -p`, `touch`, `rm`, `mv`, `cp`, `tree`)
+- the terminal looks the part: a terminal **window** (title bar showing `user@lunix: ~/path`, minimize / maximize / close buttons) sitting on a desktop, an authentic green-segmented **tmux status bar** with live clock, thin dark scrollbar, selectable copyable output, and a blinking **block cursor** (hollow when unfocused)
+- readline editing: `Tab` completes commands *and* paths (bash-style listing on ambiguity), `↑/↓` walk the history, `Ctrl-R` reverse-i-search, `Ctrl-A/E/U/K/W`, `Ctrl-L` clear, `Ctrl-C` cancel line (`^C`; select output + Ctrl-C still copies), `Ctrl-D` EOF logout
+- **multiple shells, tmux-style**: windows live in the bottom status bar (`[lunix] 0:bash* 1:bash- +`) — click a segment or press `+` for a new shell; each window owns its own cwd, user, history, draft line and scrollback; `exit` closes one window (the last one logs out); up to 10 windows; sessions survive a refresh
+- **tasks stay in their lane**: long-running output belongs to the window that started it — `ping` in window 0 keeps ticking into window 0 even while you work in window 1, and its tab gets a tmux-style `!` activity flag until you check it
+- tmux prefix keys, like the real thing: `Ctrl-B` then `c` new window · `n` / `p` next / previous · `0-9` jump to window · `&` kill current (the bar flashes orange while the prefix is armed)
+- a working virtual filesystem (`ls` column-major like real ls, `ls -l` with perms/link-count/date columns, `cd`, `cat`, `mkdir -p`, `touch`, `rm`, `mv`, `cp`, `tree`) and a real in-terminal editor: `nano` opens a full-screen buffer with ^O write out, ^X exit (save prompt on modified buffers), ^K/^U line cut & paste
 - a simulated `apk` package manager with a 21-package index
 - installed tools light up: `cowsay`, `python3`, `git`, `node`, `htop`, `lolcat`, `docker`, `ssh`, `tmux`, `nginx`...
 - `ping` with real DNS resolution (DoH) and authentic RTT statistics, `curl`, `wget`, `sudo`, `su`, `history`, `&&` chaining, arrow-up history
 - `>` / `>>` redirection, `reboot`, `poweroff`, `end`, `logout`, `exit`
 - device-first sessions: `exps` downloads the whole session to your machine, `imps` imports it back from a file picker — nothing is stored. `exps lock` seals the archive behind a password (pbkdf2 + aes-gcm), so even the file on your desktop is closed until you say otherwise
 - device-first audio: `music` plays from the bucket or any url, `music imps` streams audio straight off your device — nothing is uploaded
+- device-first video: `vid` opens a file picker and plays video straight off your device in a floating player; `vid <name.mp4>` streams from the bucket, `vid <url>` plays a link, `vid stop` closes it (mp4, webm, ogv, m4v, mov, mkv)
 - mobile support: on-screen keys, no iOS zoom, touch-safe layout
 
 the aesthetic is the ZTNA portfolio's dark bash theme: `#000` background, `#c9c9c9` text, Ubuntu green `#4e9a06`, blue `#729fcf`, orange accent `#e95420`, Consolas / Cascadia Mono / Ubuntu Mono.
@@ -99,6 +105,8 @@ lunix@lunix:~$ ping -c 4 github.com     # real DNS, real-looking rtt stats
 lunix@lunix:~$ exps                      # downloads lunix-session.zip to your device
 lunix@lunix:~$ poweroff      # purges everything
 ```
+
+(no password — just type a username, or press enter for `lunix`)
 
 ## planned commands — being built into the platform
 
@@ -211,8 +219,14 @@ notes:
 
 | feature | what it does | status |
 |---|---|---|
-| tab completion | complete command names and file paths | planned |
-| `history` search | ctrl-r style reverse search | planned |
+| tab completion | completes command names and file paths (`Tab`; bash-style candidate listing on ambiguity) | done |
+| `history` search | ctrl-r style reverse search (enter accepts, esc restores the line) | done |
+| readline editing | `↑/↓` history walking with draft restore, `Ctrl-A/E` home/end, `Ctrl-U/K/W` kill line/word, `Ctrl-L` clear, `Ctrl-C` cancel, `Ctrl-D` logout | done |
+| terminal window chrome | desktop backdrop, title bar (`user@lunix: ~/path` follows cwd/user), minimize → dock pill / maximize / close (= poweroff, confirms first) | done |
+| multiple shells (tmux windows) | status-bar window list + `+`; per-shell cwd/user/history/scrollback; `Ctrl-B c/n/p/0-9/&` prefix chords; `exit` closes a window; cap 10; survives refresh | done |
+| per-window task output | async output (ping, fetches, tools) routes back to the window that spawned it, even after switching; background windows show an activity flag | done |
+| block cursor | blinking block caret like gnome-terminal; hollow when unfocused; hidden while typing passwords | done |
+| tmux status bar | green `[lunix] 0:bash*` segment + uptime / pkgs / session id / live clock cells | done |
 
 want a command added? it's a few lines in the `CMDS` map — see [customizing](#customizing).
 
@@ -307,7 +321,7 @@ register("nmap", function (args) {
 
 meta header: `#slux name|desc|version`. the bash section can use any sim command (including `>` redirection and `mkdir -p`) to create files, install apk deps, etc. the code section has access to the sim's globals (`print`, `err`, `printHtml`, `fs`, `pkgs`, `esc`, `CMDS`...) and must call `register("<name>", function (args) {...})`.
 
-the first tool on the branch is a full traditional `nmap` — `-sV`, `-sn`, `-sS`, `-O`, `-A`, port ranges, `-oN/-oG/-oX` output files, seeded results, and it writes its reports into the virtual fs.
+tools on the branch: a full traditional `nmap` (`-sV`, `-sn`, `-sS`, `-O`, `-A`, port ranges, `-oN/-oG/-oX` output files), the `wids` PocketWIDS console, and `ytc` — a YouTube converter front-end: `ytc <link> [mp3|mp4] [quality]` shows live yt-dlp-style progress in the terminal and saves the finished file **straight to your device** (the sim never stores it). installed tools discover their infrastructure at runtime via the worker's `/api/config` endpoint, so `ytc` automatically rides whatever converter **your** deployment configured (`YTC_UPSTREAM` in `worker/index.js`) — no hardcoded endpoints, no tool edits when you swap converters.
 
 tools also deploy to the R2 bucket under `tools/` so they can be fetched from the LUNIX domain itself.
 
@@ -403,6 +417,8 @@ the worker serves:
 | `/api/bucket` | bucket file list |
 | `/api/bucket/<name>` | bucket file download |
 | `/api/wids` | PocketWIDS sensor event feed (read) / ingest (write, needs key) |
+| `/api/ytc/*` | same-origin relay to the YouTube converter (info / jobs / download streaming) |
+| `/api/config` | infrastructure discovery for installed tools (reports the deployment's converter route) |
 | `/wisp` | websocket relay (real-vm revival, needs workers paid) |
 
 notes for deployments:
