@@ -1,0 +1,238 @@
+#slux name dig
+#slux desc "flexible tool for interrogating DNS name servers — real DNS over HTTPS (google + cloudflare)"
+#slux version 1.0.0
+
+# bash section — LUNIX bash, run on install.
+mkdir -p /usr/bin
+echo "dig — real DNS answers via DNS-over-HTTPS. @8.8.8.8 uses dns.google, @1.1.1.1 uses cloudflare-dns.com" > /usr/bin/dig.README.txt
+
+#slux code
+register("dig", function (args) {
+  var VERSION = "DiG 9.18.28-LUNIX";
+  var QTYPES = { A: 1, NS: 2, CNAME: 5, SOA: 6, PTR: 12, MX: 15, TXT: 16, AAAA: 28, SRV: 33, CAA: 257, ANY: 255 };
+  var TYPENAMES = { 1: "A", 2: "NS", 5: "CNAME", 6: "SOA", 12: "PTR", 15: "MX", 16: "TXT", 28: "AAAA", 33: "SRV", 257: "CAA", 255: "ANY" };
+  var STATUSES = { 0: "NOERROR", 1: "FORMERR", 2: "SERVFAIL", 3: "NXDOMAIN", 4: "NOTIMP", 5: "REFUSED" };
+
+  function helpText() {
+    return "Usage: dig [@server] [name] [type] [class] [query-opt...]\n" +
+      "\n" +
+      "any name can be a DNS name or an IP address (-x does the reverse)\n" +
+      "types: a aaaA cname soa ptr mx ns txt srv caa any\n" +
+      "\n" +
+      "query options:\n" +
+      "  +short          terse answer only\n" +
+      "  +noall          clear all display flags (re-enable after with +answer etc)\n" +
+      "  +comments       header/comment lines        [default on]\n" +
+      "  +question       QUESTION SECTION            [default on]\n" +
+      "  +answer         ANSWER SECTION              [default on]\n" +
+      "  +authority      AUTHORITY SECTION           [default on]\n" +
+      "  +additional     ADDITIONAL SECTION          [default on]\n" +
+      "  +stats          statistics tail             [default on]\n" +
+      "  +cmd            echo the invoked command    [default on]\n" +
+      "  +tcp            use TCP (semantics only here)\n" +
+      "servers: @8.8.8.8 / @dns.google (google) · @1.1.1.1 / @1.0.0.1 / @cloudflare-dns.com (cloudflare)\n" +
+      "\n" +
+      "examples:\n" +
+      "  dig example.com                 a record, full output\n" +
+      "  dig example.com +short          just the answer lines\n" +
+      "  dig example.com MX              mail exchangers\n" +
+      "  dig @1.1.1.1 lunix.blueberryservices.co.za AAAA\n" +
+      "  dig -x 8.8.8.8                  reverse (PTR)\n" +
+      "  dig example.com +noall +answer +stats";
+  }
+
+  var opts = {
+    cmd: true, comments: true, question: true, answer: true,
+    authority: true, additional: true, stats: true, short: false,
+    tcp: false, server: null, port: 53
+  };
+
+  function setAll(v) {
+    opts.comments = opts.question = opts.answer = opts.authority = opts.additional = opts.stats = v;
+  }
+
+  var queries = [];
+  var bad = null;
+
+  for (var i = 0; i < args.length && !bad; i++) {
+    var a = args[i];
+    var low = a.toLowerCase();
+    if (a === "-h" || a === "--help") { print(helpText()); return; }
+    else if (a === "-v" || a === "-V" || a === "--version") { print(VERSION); return; }
+    else if (a === "-4" || a === "-6") { /* inet family: accepted */ }
+    else if (low === "+tcp") opts.tcp = true;
+    else if (low === "+notcp") opts.tcp = false;
+    else if (low === "+short") opts.short = true;
+    else if (low === "+noshort") opts.short = false;
+    else if (low === "+all") setAll(true);
+    else if (low === "+noall") setAll(false);
+    else if (low === "+comments") opts.comments = true;
+    else if (low === "+nocomments") opts.comments = false;
+    else if (low === "+question") opts.question = true;
+    else if (low === "+noquestion") opts.question = false;
+    else if (low === "+answer") opts.answer = true;
+    else if (low === "+noanswer") opts.answer = false;
+    else if (low === "+authority") opts.authority = true;
+    else if (low === "+noauthority") opts.authority = false;
+    else if (low === "+additional") opts.additional = true;
+    else if (low === "+noadditional") opts.additional = false;
+    else if (low === "+stats") opts.stats = true;
+    else if (low === "+nostats") opts.stats = false;
+    else if (low === "+cmd") opts.cmd = true;
+    else if (low === "+nocmd") opts.cmd = false;
+    else if (/^\+(time|tries|retry|ndots|bufsize|edns|domain|search|split)=/.test(low)) { /* accepted */ }
+    else if (a.indexOf("@") === 0 && a.length > 1) opts.server = a.slice(1);
+    else if (a === "-x") {
+      var rev = args[++i];
+      if (!rev) { bad = "dig: -x needs an address"; break; }
+      if (rev.indexOf(":") !== -1) { bad = "dig: ipv6 reverse zones are not wired up here — try an ipv4 address"; break; }
+      queries.push({ qname: rev.split(".").reverse().join(".") + ".in-addr.arpa.", qtype: "PTR", orig: rev });
+    }
+    else if (a === "-p") {
+      var pr = parseInt(args[++i], 10);
+      if (!pr || pr < 1 || pr > 65535) { bad = "dig: port '" + args[i] + "' is not valid"; break; }
+      opts.port = pr;
+    }
+    else if (a === "-c") { i++; /* class IN assumed */ }
+    else if (a === "-b" || a === "-f" || a === "-k" || a === "-y") { bad = "dig: option '" + a + "' is not supported in this build"; break; }
+    else if (QTYPES[low.toUpperCase()]) {
+      if (queries.length) queries[queries.length - 1].qtype = low.toUpperCase();
+      else queries.push({ qname: ".", qtype: low.toUpperCase(), typeOnly: true });
+    }
+    else if (low === "in" || low === "ch" || low === "hs") { /* class tokens ignored */ }
+    else if (a.charAt(0) === "+") { bad = "dig: invalid option: " + a; break; }
+    else if (a.charAt(0) === "-" && a !== "-") { bad = "dig: unrecognized option '" + a + "'"; break; }
+    else {
+      var qname = a.charAt(a.length - 1) === "." ? a : a + ".";
+      queries.push({ qname: qname, qtype: null, orig: a });
+    }
+  }
+
+  if (bad) { err(bad); return; }
+  if (!queries.length) { err("Usage: dig [@server] [name] [type] [class] [query-opt...]  — try 'dig --help'"); return; }
+  for (var q = 0; q < queries.length; q++) if (!queries[q].qtype) queries[q].qtype = "A";
+
+  function endpoint(server) {
+    var s = (server || "").toLowerCase();
+    if (s === "" || s === "dns.google" || s === "8.8.8.8" || s === "8.8.4.4" || s === "google" || s === "google-public-dns-a.google.com")
+      return { url: "https://dns.google/resolve", label: s === "8.8.4.4" ? "8.8.4.4" : "8.8.8.8", portLabel: "8.8.8.8" };
+    if (s === "1.1.1.1" || s === "1.0.0.1" || s === "cloudflare-dns.com" || s === "one.one.one.one" || s === "cloudflare")
+      return { url: "https://cloudflare-dns.com/dns-query", json: true, label: s === "1.0.0.1" ? "1.0.0.1" : "1.1.1.1", portLabel: "1.1.1.1" };
+    return null;
+  }
+
+  function pad(s, n) { s = String(s); while (s.length < n) s += " "; return s; }
+  function padL(s, n) { s = String(s); while (s.length < n) s = " " + s; return s; }
+
+  function section(rows) {
+    if (!rows.length) return [];
+    var nw = 21, tw = 8;
+    for (var r = 0; r < rows.length; r++) { if (rows[r][0].length + 1 > nw) nw = rows[r][0].length + 1; }
+    return rows.map(function (row) { return pad(row[0], nw) + padL(row[1], tw) + "\tIN\t" + row[2] + "\t" + row[3]; });
+  }
+
+  function whenStr() {
+    var d = new Date();
+    var days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    var mons = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    function p2(n) { return (n < 10 ? "0" : "") + n; }
+    var tz = "UTC";
+    try {
+      var parts = new Intl.DateTimeFormat("en-US", { timeZoneName: "short" }).formatToParts(d);
+      for (var i = 0; i < parts.length; i++) if (parts[i].type === "timeZoneName" && parts[i].value && parts[i].value.indexOf("GMT") !== 0) tz = parts[i].value;
+    } catch (e) {}
+    return days[d.getDay()] + " " + mons[d.getMonth()] + " " + p2(d.getDate()) + " " + p2(d.getHours()) + ":" + p2(d.getMinutes()) + ":" + p2(d.getSeconds()) + " " + tz + " " + d.getFullYear();
+  }
+
+  function echoCmd(q) {
+    var s = "";
+    if (opts.server) s += "@" + opts.server + " ";
+    s += q.orig !== undefined ? q.orig : q.qname;
+    if (q.typeOnly) s = q.qtype;
+    return "; <<>> " + VERSION + " <<>> " + s;
+  }
+
+  function runOne(q) {
+    var ep = endpoint(opts.server);
+    var t0 = Date.now();
+
+    function timeoutBlock() {
+      if (!opts.short) {
+        print(echoCmd(q));
+        if (opts.cmd) print(";; global options: +cmd");
+        print(";; connection timed out; no servers could be reached");
+      } else {
+        err(";; connection timed out; no servers could be reached");
+      }
+    }
+
+    if (!ep) { timeoutBlock(); return Promise.resolve(); }
+
+    var uopts = { method: "GET" };
+    var url = ep.url + "?name=" + encodeURIComponent(q.qname.replace(/\.$/, "")) + "&type=" + q.qtype;
+    if (ep.json) uopts.headers = { accept: "application/dns-json" };
+
+    return fetch(url, uopts).then(function (r) { return r.json(); }).then(function (d) {
+      if (!d || typeof d.Status !== "number") { timeoutBlock(); return; }
+      var status = STATUSES[d.Status] || ("BADSTATUS-" + d.Status);
+      var ans = d.Answer || [], auth = d.Authority || [], add = d.Additional || [];
+      var elapsed = Math.max(Date.now() - t0, 1);
+
+      if (opts.short) {
+        for (var si = 0; si < ans.length; si++) print(ans[si].data);
+        return;
+      }
+
+      var id = Math.floor(Math.random() * 65536);
+      print(echoCmd(q));
+      if (opts.cmd) print(";; global options: +cmd");
+      if (opts.comments) {
+        print(";; Got answer:");
+        print(";; ->>HEADER<<- opcode: QUERY, status: " + status + ", id: " + id);
+        var flags = ["qr"];
+        if (d.RD !== false) flags.push("rd");
+        if (d.RA) flags.push("ra");
+        if (d.AD) flags.push("ad");
+        if (d.CD) flags.push("cd");
+        if (d.TC) flags.push("tc");
+        print(";; flags: " + flags.join(" ") + "; QUERY: " + ((d.Question && d.Question.length) || 1)
+          + ", ANSWER: " + ans.length + ", AUTHORITY: " + auth.length + ", ADDITIONAL: " + (add.length + 1));
+        print("");
+        print(";; OPT PSEUDOSECTION:");
+        print("; EDNS: version: 0, flags:; udp: 1232");
+      }
+      if (opts.question && d.Question && d.Question.length && opts.comments) {
+        print(";; QUESTION SECTION:");
+        for (var qi = 0; qi < d.Question.length; qi++)
+          print(";" + pad(d.Question[qi].name + ".", 21) + "\tIN\t" + (TYPENAMES[d.Question[qi].type] || d.Question[qi].type));
+        print("");
+      }
+      if (opts.answer && ans.length) {
+        print(";; ANSWER SECTION:");
+        section(ans.map(function (rec) {
+          var nm = rec.name || q.qname;
+          return [nm.charAt(nm.length - 1) === "." ? nm : nm + ".", rec.TTL != null ? rec.TTL : 300, TYPENAMES[rec.type] || rec.type, rec.data];
+        })).forEach(function (line) { print(line); });
+        print("");
+      }
+      if (opts.authority && auth.length && opts.comments) {
+        print(";; AUTHORITY SECTION:");
+        section(auth.map(function (rec) {
+          return [rec.name + ".", rec.TTL != null ? rec.TTL : 300, TYPENAMES[rec.type] || rec.type, rec.data];
+        })).forEach(function (line) { print(line); });
+        print("");
+      }
+      if (opts.comments && opts.stats) {
+        print(";; Query time: " + elapsed + " msec");
+        print(";; SERVER: " + ep.label + "#" + opts.port + "(" + ep.portLabel + ")" + (opts.tcp ? " (TCP)" : " (UDP)"));
+        print(";; WHEN: " + whenStr());
+        print(";; MSG SIZE  rcvd: " + String(JSON.stringify(d)).length);
+      }
+    }).catch(function () { timeoutBlock(); });
+  }
+
+  var chain = Promise.resolve();
+  for (var k = 0; k < queries.length; k++) (function (qk) {
+    chain = chain.then(function () { return runOne(qk); }).then(function () { if (k < queries.length - 1) print(""); });
+  })(queries[k]);
+});
