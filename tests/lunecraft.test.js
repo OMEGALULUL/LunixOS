@@ -99,5 +99,17 @@ console.log("camera basis (the upside-down incident):");
   ok("basis orthonormal and up-positive over full look range", sound, detail);
 })();
 
+console.log("keyboard steering (touchpad-hostile laptops):");
+(function steer() {
+  const LK = D.lookKeys, K = (codes) => { const o = {}; codes.forEach((c) => (o[c] = true)); return o; };
+  ok("left arrow turns left (yaw decreases)", LK(K(["ArrowLeft"]), 1, 0, 0.5).yaw < 1);
+  ok("right arrow turns right (yaw increases)", LK(K(["ArrowRight"]), 1, 0, 0.5).yaw > 1);
+  ok("E turns right too", LK(K(["KeyE"]), 1, 0, 0.5).yaw > 1);
+  ok("up arrow looks up (pitch increases)", LK(K(["ArrowUp"]), 0, 0, 0.5).pitch > 0);
+  ok("down arrow looks down", LK(K(["ArrowDown"]), 0, 0, 0.5).pitch < 0);
+  const clamped = LK(K(["ArrowUp"]), 0, 1.54, 10); // huge dt would blow past the clamp
+  ok("pitch clamps at +/-1.55 even with big steps", clamped.pitch <= 1.55 && LK(K(["ArrowDown"]), 0, -9, 10).pitch >= -1.55);
+})();
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -42,6 +42,17 @@
     ];
     return { f: f, r: r, u: u };
   }
+  // keyboard steering — laptops with picky touchpads (or anyone) can turn without the mouse
+  function lookKeys(keys, yaw, pitch, dt) {
+    var TURN = 1.9, TILT = 1.4; // rad/s
+    if (keys["ArrowLeft"] || keys["KeyQ"]) yaw -= TURN * dt;
+    if (keys["ArrowRight"] || keys["KeyE"]) yaw += TURN * dt;
+    if (keys["ArrowUp"]) pitch += TILT * dt;
+    if (keys["ArrowDown"]) pitch -= TILT * dt;
+    if (pitch > 1.55) pitch = 1.55;
+    if (pitch < -1.55) pitch = -1.55;
+    return { yaw: yaw, pitch: pitch };
+  }
   function hash2(seed, x, y) {
     var h = seed >>> 0;
     h = (Math.imul(h ^ x, 0x27d4eb2d) ^ Math.imul(y + 0x9e3779b9, 0x165667b1)) >>> 0;
@@ -400,6 +411,8 @@
     }
 
     function stepPlayer(dt) {
+      var lk = lookKeys(keys, P.yaw, P.pitch, dt);
+      P.yaw = lk.yaw; P.pitch = lk.pitch;
       var sp = keys["ShiftLeft"] ? 9.5 : 5.2;
       var b = viewBasis(P.yaw, 0); // controls share the camera's basis — W always goes where you look
       var fx = b.f[0], fz = b.f[2], rxv = b.r[0], rzv = b.r[2];
@@ -484,7 +497,7 @@
       if (e.code === "Escape") return; // browser exits pointer lock itself
       keys[e.code] = true;
       if (e.code === "KeyF") P.fly = !P.fly;
-      if (e.code === "Space" || e.code === "Tab") e.preventDefault();
+      if (e.code === "Space" || e.code === "Tab" || e.code.indexOf("Arrow") === 0) e.preventDefault();
     }
     function onKeyUp(e) { keys[e.code] = false; }
     function onMouseMove(e) {
@@ -611,7 +624,7 @@
       hash2: hash2, vnoise: vnoise, fbm: fbm,
       columnHeight: columnHeight, genChunk: genChunk,
       meshChunk: meshChunk, raycast: raycast, collides: collides, moveBody: moveBody,
-      paintAtlas: paintAtlas, viewBasis: viewBasis
+      paintAtlas: paintAtlas, viewBasis: viewBasis, lookKeys: lookKeys
     }
   };
 })();

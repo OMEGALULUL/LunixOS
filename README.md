@@ -186,7 +186,7 @@ the zip is built in the browser (store-method zip, no dependencies) — comforta
 
 | input | action |
 |---|---|
-| mouse | look (pointer lock) |
+| mouse | look (pointer lock) — or **arrows / Q E** to steer from the keyboard (laptops whose touchpads sulk while keys are held) |
 | `W A S D` | move (`Shift` sprint) |
 | `Space` / `F` | jump · toggle fly (`Ctrl` descends in fly) |
 | left / right click | mine · place |

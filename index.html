@@ -753,7 +753,7 @@ var CMDS = {
   clear: function () { body.innerHTML = ""; },
   lunecraft: function (args) {
     if (args[0] === "-h" || args[0] === "--help")
-      return print("lunecraft — a voxel world in your tab (webgl2)\n  lunecraft            resume or start a world\n  lunecraft <seed>     start fresh with a seed you chose\n  lunecraft reset      wipe the save (the purge does this anyway)\n\nwasd move · space jump · F fly · left mine · right place · wheel picks block · esc pauses");
+      return print("lunecraft — a voxel world in your tab (webgl2)\n  lunecraft            resume or start a world\n  lunecraft <seed>     start fresh with a seed you chose\n  lunecraft reset      wipe the save (the purge does this anyway)\n\nwasd move · space jump · F fly · left mine · right place · wheel picks block · arrows or Q/E turn · esc pauses");
     if (!window.WebGL2RenderingContext) return err("lunecraft: this browser has no webgl2 — the world stays imaginary");
     var SAVE = norm(resolve("~/.lunecraft"));
     var save = null;
