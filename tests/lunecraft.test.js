@@ -79,5 +79,25 @@ console.log("textures:");
   ok("atlas is browser-canvas painted (null in headless, GL never runs here)", cv === null || (cv.width === 64 && cv.height === 64));
 })();
 
+console.log("camera basis (the upside-down incident):");
+(function cam() {
+  const VB = D.viewBasis, eps = 1e-9;
+  const near = (a, b) => Math.abs(a - b) < 1e-6;
+  let b0 = VB(0, 0);
+  ok("yaw 0 pitch 0 faces -z", near(b0.f[0], 0) && near(b0.f[1], 0) && near(b0.f[2], -1), JSON.stringify(b0.f));
+  ok("yaw 0 right is +x (was negated before)", near(b0.r[0], 1) && near(b0.r[2], 0), JSON.stringify(b0.r));
+  ok("yaw 0 up is +y (terrain used to hang from the sky)", near(b0.u[1], 1) && b0.u[1] > 0, JSON.stringify(b0.u));
+  let sound = true, detail = "";
+  for (let yaw = -3.2; yaw <= 3.2; yaw += 0.37) for (let pitch = -1.55; pitch <= 1.55; pitch += 0.31) {
+    const b = VB(yaw, pitch);
+    const dot = (a, c) => a[0] * c[0] + a[1] * c[1] + a[2] * c[2];
+    const len = (a) => Math.sqrt(dot(a, a));
+    if (!(near(len(b.f), 1) && near(len(b.r), 1) && near(len(b.u), 1))) { sound = false; detail = "not unit at " + yaw.toFixed(2) + "/" + pitch.toFixed(2); }
+    if (!(near(dot(b.f, b.r), 0) && near(dot(b.f, b.u), 0) && near(dot(b.r, b.u), 0))) { sound = false; detail = "not orthogonal at " + yaw.toFixed(2) + "/" + pitch.toFixed(2); }
+    if (b.u[1] <= 0) { sound = false; detail = "up flipped at " + yaw.toFixed(2) + "/" + pitch.toFixed(2); }
+  }
+  ok("basis orthonormal and up-positive over full look range", sound, detail);
+})();
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

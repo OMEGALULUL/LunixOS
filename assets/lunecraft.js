@@ -28,6 +28,20 @@
   FACETILE[B.COBBLE] = [T.COBBLE, T.COBBLE, T.COBBLE];
 
   // ------------------------------------------------------------- rng/noise --
+  // pure so tests can pin it: forward/right/up must stay orthonormal, up never flips
+  function viewBasis(yaw, pitch) {
+    var cy = Math.cos(yaw), sy = Math.sin(yaw), cp = Math.cos(pitch), sp = Math.sin(pitch);
+    var f = [sy * cp, sp, -cy * cp];                 // forward
+    var r = [-f[2], 0, f[0]];                        // right = (-Fz, 0, Fx) — +x when facing -z
+    var rl = Math.sqrt(r[0] * r[0] + r[2] * r[2]) || 1;
+    r[0] /= rl; r[2] /= rl;
+    var u = [                                        // up = cross(right, forward)
+      r[1] * f[2] - r[2] * f[1],
+      r[2] * f[0] - r[0] * f[2],
+      r[0] * f[1] - r[1] * f[0]
+    ];
+    return { f: f, r: r, u: u };
+  }
   function hash2(seed, x, y) {
     var h = seed >>> 0;
     h = (Math.imul(h ^ x, 0x27d4eb2d) ^ Math.imul(y + 0x9e3779b9, 0x165667b1)) >>> 0;
@@ -387,12 +401,13 @@
 
     function stepPlayer(dt) {
       var sp = keys["ShiftLeft"] ? 9.5 : 5.2;
-      var fx = Math.cos(P.yaw), fz = Math.sin(P.yaw); // forward (note yaw convention)
+      var b = viewBasis(P.yaw, 0); // controls share the camera's basis — W always goes where you look
+      var fx = b.f[0], fz = b.f[2], rxv = b.r[0], rzv = b.r[2];
       var mx = 0, mz = 0;
       if (keys["KeyW"]) { mx += fx; mz += fz; }
       if (keys["KeyS"]) { mx -= fx; mz -= fz; }
-      if (keys["KeyA"]) { mx += fz; mz -= fx; }
-      if (keys["KeyD"]) { mx -= fz; mz += fx; }
+      if (keys["KeyA"]) { mx -= rxv; mz -= rzv; }
+      if (keys["KeyD"]) { mx += rxv; mz += rzv; }
       var ml = Math.sqrt(mx * mx + mz * mz);
       if (ml > 0) { mx /= ml; mz /= ml; }
       var inWater = gb(Math.floor(P.x), Math.floor(P.y + 0.4), Math.floor(P.z)) === B.WATER;
@@ -418,17 +433,10 @@
       return [t / asp, 0, 0, 0, 0, t, 0, 0, 0, 0, (f + n) / (n - f), -1, 0, 0, 2 * f * n / (n - f), 0];
     }
     function matView() {
-      var cy = Math.cos(P.yaw), sy = Math.sin(P.yaw), cp = Math.cos(P.pitch), spp = Math.sin(P.pitch);
-      // forward vector
-      var fxv = sy * cp, fyv = spp, fzv = -cy * cp;
-      // right = normalize(cross(forward, up))
-      var rx = fzv, ry = 0, rz = -fxv;
-      var rl = Math.sqrt(rx * rx + rz * rz) || 1; rx /= rl; rz /= rl;
-      // up = cross(right, forward)
-      var ux = ry * fzv - rz * fyv, uy = rz * fxv - rx * fzv, uz = rx * fyv - ry * fxv;
+      var b = viewBasis(P.yaw, P.pitch);
       var ex = P.x, ey = P.y + 1.62, ez = P.z;
-      return [rx, ux, -fxv, 0, ry, uy, -fyv, 0, rz, uz, -fzv, 0,
-        -(rx * ex + ry * ey + rz * ez), -(ux * ex + uy * ey + uz * ez), (fxv * ex + fyv * ey + fzv * ez), 1];
+      return [b.r[0], b.u[0], -b.f[0], 0, b.r[1], b.u[1], -b.f[1], 0, b.r[2], b.u[2], -b.f[2], 0,
+        -(b.r[0] * ex + b.r[1] * ey + b.r[2] * ez), -(b.u[0] * ex + b.u[1] * ey + b.u[2] * ez), (b.f[0] * ex + b.f[1] * ey + b.f[2] * ez), 1];
     }
     function matMul(a, b) {
       var o = new Array(16);
@@ -603,7 +611,7 @@
       hash2: hash2, vnoise: vnoise, fbm: fbm,
       columnHeight: columnHeight, genChunk: genChunk,
       meshChunk: meshChunk, raycast: raycast, collides: collides, moveBody: moveBody,
-      paintAtlas: paintAtlas
+      paintAtlas: paintAtlas, viewBasis: viewBasis
     }
   };
 })();
