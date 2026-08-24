@@ -30,11 +30,13 @@ register("snake", function (args) {
   var host = (typeof body !== "undefined" && body) ? body : document.getElementById("vt-body");
   var inputEl = document.getElementById("vt-input");
 
-  // fresh board, and bury any leftover board from a previous round
-  if (window.__snakeBoard && window.__snakeBoard.isConnected) window.__snakeBoard.remove();
+  // fresh board; bury any leftover board from a previous round
+  if (window.__snakeBoard) { try { window.__snakeBoard.remove(); } catch (eRm) {} }
   var board = document.createElement("div");
   board.setAttribute("data-snake-board", "1");
   host.appendChild(board);
+  window.__snakeBoard = board;
+  body.scrollTop = body.scrollHeight; // the board spawns at the bottom — go look at it
 
   var snake, dir, queue, food, score, best, timer, paused, dead = false;
 
@@ -86,6 +88,11 @@ register("snake", function (args) {
     out += cell(C_EDGE, "└") + cell(C_EDGE, new Array(COLS * 2 + 1).join("─")) + cell(C_EDGE, "┘") + "\n";
     out += "<span class='dim'>" + status + "</span>";
     board.innerHTML = out;
+    // keep the board in view while playing, but never yank a scrolled-up reader
+    if (body.isConnected) {
+      var atBottom = body.scrollTop + body.clientHeight >= body.scrollHeight - 60;
+      if (atBottom) body.scrollTop = body.scrollHeight;
+    }
   }
 
   function statusLine() {
