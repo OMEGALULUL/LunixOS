@@ -737,7 +737,7 @@ var CMDS = {
   help: function (args) {
     printHtml("available commands (this is a simulation. a lovely one)<br>" +
       "&nbsp;&nbsp;<span class='accent'>ls</span> [-l]&nbsp;&nbsp;<span class='accent'>cd</span> &lt;dir&gt;&nbsp;&nbsp;<span class='accent'>cat</span> &lt;file&gt;&nbsp;&nbsp;<span class='accent'>nano</span> &lt;file&gt;&nbsp;&nbsp;<span class='accent'>pwd</span>&nbsp;&nbsp;<span class='accent'>mkdir</span>&nbsp;&nbsp;<span class='accent'>touch</span>&nbsp;&nbsp;<span class='accent'>rm</span>&nbsp;&nbsp;<span class='accent'>mv</span>&nbsp;&nbsp;<span class='accent'>cp</span>&nbsp;&nbsp;<span class='accent'>tree</span><br>" +
-      "&nbsp;&nbsp;<span class='accent'>whoami</span>&nbsp;&nbsp;<span class='accent'>id</span>&nbsp;&nbsp;<span class='accent'>uname</span>&nbsp;&nbsp;<span class='accent'>hostname</span>&nbsp;&nbsp;<span class='accent'>uptime</span>&nbsp;&nbsp;<span class='accent'>date</span>&nbsp;&nbsp;<span class='accent'>free</span>&nbsp;&nbsp;<span class='accent'>cksum</span>&nbsp;&nbsp;<span class='accent'>history</span>&nbsp;&nbsp;<span class='accent'>clear</span><br>" +
+      "&nbsp;&nbsp;<span class='accent'>whoami</span>&nbsp;&nbsp;<span class='accent'>id</span>&nbsp;&nbsp;<span class='accent'>uname</span>&nbsp;&nbsp;<span class='accent'>hostname</span>&nbsp;&nbsp;<span class='accent'>uptime</span>&nbsp;&nbsp;<span class='accent'>date</span>&nbsp;&nbsp;<span class='accent'>free</span>&nbsp;&nbsp;<span class='accent'>cksum</span>&nbsp;&nbsp;<span class='accent'>lunecraft</span>&nbsp;&nbsp;<span class='accent'>history</span>&nbsp;&nbsp;<span class='accent'>clear</span><br>" +
       "&nbsp;&nbsp;<span class='accent'>apk update|add|del|search|info</span>&nbsp;&nbsp;<span class='accent'>ping</span>&nbsp;&nbsp;<span class='accent'>curl</span>&nbsp;&nbsp;<span class='accent'>wget</span><br>" +
       "&nbsp;&nbsp;<span class='accent'>sudo</span>&nbsp;&nbsp;<span class='accent'>su</span>&nbsp;&nbsp;<span class='accent'>exit</span>&nbsp;&nbsp;<span class='accent'>reboot</span>&nbsp;&nbsp;<span class='accent'>poweroff</span>&nbsp;&nbsp;<span class='accent'>end</span><br>" +
       "&nbsp;&nbsp;<span class='accent'>save down|up|rm|du</span> — the bucket survives the purge<br>" +
@@ -751,6 +751,50 @@ var CMDS = {
       "readline keys: <span class='accent'>Tab</span> completes commands &amp; paths · <span class='accent'>↑/↓</span> walks history · <span class='accent'>Ctrl-R</span> reverse search · <span class='accent'>Ctrl-L</span> clears · <span class='accent'>Ctrl-C</span> cancels the line (select output + Ctrl-C still copies) · <span class='accent'>Ctrl-D</span> logs out · <span class='accent'>Ctrl-U/K/W</span> kill line");
   },
   clear: function () { body.innerHTML = ""; },
+  lunecraft: function (args) {
+    if (args[0] === "-h" || args[0] === "--help")
+      return print("lunecraft — a voxel world in your tab (webgl2)\n  lunecraft            resume or start a world\n  lunecraft <seed>     start fresh with a seed you chose\n  lunecraft reset      wipe the save (the purge does this anyway)\n\nwasd move · space jump · F fly · left mine · right place · wheel picks block · esc pauses");
+    if (!window.WebGL2RenderingContext) return err("lunecraft: this browser has no webgl2 — the world stays imaginary");
+    var SAVE = norm(resolve("~/.lunecraft"));
+    var save = null;
+    if (args[0] === "reset") { delete fs[SAVE]; saveState(); return print("lunecraft: save wiped. like it never happened."); }
+    try {
+      var sf = fs[SAVE];
+      if (sf && sf.type === "file") save = JSON.parse(sf.data);
+    } catch (eSave) {}
+    if (save && typeof args[0] === "undefined")
+      printHtml("<span class='dim'>resuming world (seed " + save.seed + ", " + Object.keys(save.edits || {}).length + " blocks changed)</span>");
+    function launch(saveData, seedOverride) {
+      if (!window.Lunicraft) {
+        var sc = document.createElement("script");
+        sc.src = "assets/lunecraft.js";
+        sc.onerror = function () { err("lunecraft: couldn't fetch assets/lunecraft.js — reload online"); };
+        sc.onload = function () { go(); };
+        document.head.appendChild(sc);
+      } else go();
+      function go() {
+        try {
+          window.Lunicraft.start({
+            seed: seedOverride != null ? seedOverride : (saveData ? saveData.seed : (Math.random() * 0xffffffff) >>> 0),
+            edits: saveData ? saveData.edits : {},
+            mount: document.querySelector(".term") || document.body,
+            onExit: function (out2) {
+              if (!out2) return;
+              fs[SAVE] = { type: "file", data: JSON.stringify(out2) };
+              var pr = parent(SAVE);
+              if (fs[pr] && fs[pr].kids && fs[pr].kids.indexOf(".lunecraft") === -1) fs[pr].kids.push(".lunecraft");
+              saveState();
+              printHtml("<span class='dim'>world saved (" + Object.keys(out2.edits).length + " edits) — lunecraft to resume</span>");
+            }
+          });
+          printHtml("<span class='dim'>lunecraft running — esc pauses, quit saves to ~/.lunecraft</span>");
+        } catch (eGo) { err("lunecraft: " + eGo.message); }
+      }
+    }
+    var seedArg = /^\d+$/.test(args[0] || "") ? parseInt(args[0], 10) >>> 0 : null;
+    if (seedArg != null) { delete fs[SAVE]; save = null; }
+    launch(save, seedArg);
+  },
   cksum: function (args) {
     if (!args.length) return err("cksum: missing operand");
     if (!CORE) {

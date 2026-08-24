@@ -230,6 +230,8 @@ export default {
 
     const mimes = {
       "index.html": "text/html; charset=utf-8",
+      "assets/lunix_core.wasm": "application/wasm",
+      "assets/lunecraft.js": "text/javascript",
       "v86.js": "text/javascript",
       "v86.wasm": "application/wasm",
       "alpine.iso": "application/octet-stream",
@@ -244,7 +246,7 @@ export default {
       if (!obj) return new Response("not found", { status: 404, headers: security });
       const headers = new Headers(obj.writeHttpMetadata || {});
       headers.set("Content-Type", mimes[key] || "text/plain; charset=utf-8");
-      headers.set("Cache-Control", key === "index.html" ? "no-cache" : key.endsWith(".slux") ? "public, max-age=300" : "public, max-age=31536000, immutable");
+      headers.set("Cache-Control", key === "index.html" ? "no-cache" : key.endsWith(".slux") || key.startsWith("assets/") ? "public, max-age=300" : "public, max-age=31536000, immutable");
       headers.set("Content-Length", obj.size);
       for (const [k, v] of Object.entries(security)) headers.set(k, v);
       return new Response(obj.body, { headers });
