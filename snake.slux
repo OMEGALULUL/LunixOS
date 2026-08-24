@@ -1,0 +1,186 @@
+#slux name snake
+#slux desc "the classic snake, playable right here in the terminal — arrows move, space pauses"
+#slux version 1.0.0
+
+# bash section — LUNIX bash, run on install.
+mkdir -p /usr/bin
+echo "snake — arrows steer · space pauses · walls kill · the purge kills everything else" > /usr/bin/snake.README.txt
+
+#slux code
+register("snake", function (args) {
+  var USAGE = "snake — the classic, in your terminal\n" +
+    "  snake        start a game (or restart after game over)\n" +
+    "  snake stop   abandon the current game\n\n" +
+    "controls: arrow keys steer · space pauses/resumes (while the input line is empty)\n" +
+    "rules: eat the orange blocks, don't eat yourself, walls are fatal.\n" +
+    "best score persists in ~/.snake until the purge takes it.";
+
+  if (args[0] === "-h" || args[0] === "--help") { print(USAGE); return; }
+  if (args[0] === "stop") {
+    if (window.__snakeStop) { window.__snakeStop(); print("snake: game abandoned."); }
+    else err("snake: no game running");
+    return;
+  }
+  if (window.__snakeActive) { err("snake: already running — 'snake stop' ends it"); return; }
+
+  var COLS = 26, ROWS = 14;
+  var C_HEAD = "#8ae234", C_BODY = "#4e9a06", C_FOOD = "#e95420", C_EDGE = "#555753";
+  var DIRS = { ArrowUp: { x: 0, y: -1 }, ArrowDown: { x: 0, y: 1 }, ArrowLeft: { x: -1, y: 0 }, ArrowRight: { x: 1, y: 0 } };
+
+  var host = (typeof body !== "undefined" && body) ? body : document.getElementById("vt-body");
+  var inputEl = document.getElementById("vt-input");
+
+  // fresh board, and bury any leftover board from a previous round
+  if (window.__snakeBoard && window.__snakeBoard.isConnected) window.__snakeBoard.remove();
+  var board = document.createElement("div");
+  board.setAttribute("data-snake-board", "1");
+  host.appendChild(board);
+
+  var snake, dir, queue, food, score, best, timer, paused, dead = false;
+
+  best = 0;
+  try {
+    var bf = fs[(typeof home === "function" ? home() : "/home/" + user) + "/.snake"];
+    if (bf && bf.type === "file") best = parseInt(bf.data, 10) || 0;
+  } catch (eBest) {}
+
+  function spawnFood() {
+    var free = [];
+    for (var y = 0; y < ROWS; y++)
+      for (var x = 0; x < COLS; x++) {
+        var taken = false;
+        for (var i = 0; i < snake.length; i++) if (snake[i].x === x && snake[i].y === y) { taken = true; break; }
+        if (!taken) free.push({ x: x, y: y });
+      }
+    if (!free.length) return null;
+    return free[Math.floor(Math.random() * free.length)];
+  }
+
+  function reset() {
+    snake = [{ x: 8, y: 7 }, { x: 7, y: 7 }, { x: 6, y: 7 }];
+    dir = DIRS.ArrowRight;
+    queue = [];
+    score = 0;
+    paused = false;
+    food = spawnFood();
+  }
+
+  function cell(color, glyph) {
+    return "<span style='color:" + color + "'>" + glyph + "</span>";
+  }
+
+  function render(status) {
+    var out = "";
+    out += cell(C_EDGE, "┌") + cell(C_EDGE, new Array(COLS * 2 + 1).join("─")) + cell(C_EDGE, "┐") + "\n";
+    var grid = {};
+    grid[food.x + "," + food.y] = "f";
+    for (var i = snake.length - 1; i >= 0; i--) grid[snake[i].x + "," + snake[i].y] = i === 0 ? "h" : "b";
+    for (var y = 0; y < ROWS; y++) {
+      out += cell(C_EDGE, "│");
+      for (var x = 0; x < COLS; x++) {
+        var c = grid[x + "," + y];
+        out += c === "h" ? cell(C_HEAD, "██") : c === "b" ? cell(C_BODY, "██") : c === "f" ? cell(C_FOOD, "▓▓") : "  ";
+      }
+      out += cell(C_EDGE, "│") + "\n";
+    }
+    out += cell(C_EDGE, "└") + cell(C_EDGE, new Array(COLS * 2 + 1).join("─")) + cell(C_EDGE, "┘") + "\n";
+    out += "<span class='dim'>" + status + "</span>";
+    board.innerHTML = out;
+  }
+
+  function statusLine() {
+    return "score " + score + " · best " + Math.max(best, score) +
+      (paused ? " · PAUSED — space resumes" : " · arrows steer, space pauses");
+  }
+
+  function speed() { return Math.max(70, 140 - score * 3); }
+
+  function armTimer() {
+    if (timer) clearInterval(timer);
+    timer = setInterval(tick, speed());
+  }
+
+  function saveBest() {
+    if (score > best) best = score;
+    try {
+      var p = (typeof home === "function" ? home() : "/home/" + user) + "/.snake";
+      fs[p] = { type: "file", data: String(best) };
+      var par = p.slice(0, p.lastIndexOf("/"));
+      if (fs[par] && fs[par].kids && fs[par].kids.indexOf(".snake") === -1) fs[par].kids.push(".snake");
+      if (typeof saveState === "function") saveState();
+    } catch (eSave) {}
+  }
+
+  function teardown() {
+    if (timer) clearInterval(timer);
+    timer = null;
+    document.removeEventListener("keydown", onKey, true);
+    delete window.__snakeActive;
+    delete window.__snakeStop;
+  }
+
+  function gameOver(msg) {
+    dead = true;
+    saveBest();
+    teardown();
+    render("<span style='color:#e95420;font-weight:bold'>GAME OVER</span> — " + msg +
+      " · score " + score + " · best " + best + " · run <span class='accent'>snake</span> to go again");
+  }
+
+  function tick() {
+    if (dead || paused) return;
+    if (!board.isConnected) { teardown(); return; } // someone ran clear / switched away permanently
+
+    while (queue.length) {
+      var nd = queue.shift();
+      if (nd.x !== -dir.x || nd.y !== -dir.y) { dir = nd; break; }
+    }
+
+    var head = { x: snake[0].x + dir.x, y: snake[0].y + dir.y };
+    if (head.x < 0 || head.x >= COLS || head.y < 0 || head.y >= ROWS) return gameOver("you ate the wall");
+    var eats = head.x === food.x && head.y === food.y;
+    if (!eats) snake.pop(); // vacate the tail first so chasing it is legal
+    for (var i = 0; i < snake.length; i++) if (snake[i].x === head.x && snake[i].y === head.y) return gameOver("you ate yourself");
+    snake.unshift(head);
+
+    if (eats) {
+      score++;
+      food = spawnFood();
+      if (!food) { saveBest(); dead = true; teardown(); render("<span class='accent'>YOU WON.</span> the board ran out of planet · score " + score); return; }
+      armTimer(); // faster every bite
+    }
+    render(statusLine());
+  }
+
+  function onKey(e) {
+    if (e.ctrlKey || e.metaKey || e.altKey || dead) return;
+    var d = DIRS[e.key];
+    var emptyDraft = inputEl && inputEl.value.length === 0;
+    if (d) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (paused) paused = false;
+      if (queue.length < 3) queue.push(d);
+      return;
+    }
+    if ((e.key === " " || e.key === "Spacebar") && emptyDraft) {
+      e.preventDefault();
+      e.stopPropagation();
+      paused = !paused;
+      render(statusLine());
+    }
+  }
+
+  window.__snakeActive = true;
+  window.__snakeStop = function () {
+    dead = true;
+    saveBest();
+    teardown();
+    render("abandoned · score " + score);
+  };
+  document.addEventListener("keydown", onKey, true);
+
+  reset();
+  render(statusLine());
+  armTimer();
+});
