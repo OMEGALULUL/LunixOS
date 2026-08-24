@@ -1,0 +1,15 @@
+{
+  "name": "lunixos-main",
+  "version": "1.0.0",
+  "description": "![LUNIX](LUNIX.jpg)",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "jsdom": "^24.1.3"
+  }
+}

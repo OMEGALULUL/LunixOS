@@ -2,7 +2,7 @@
 
 ![LUNIX](LUNIX.jpg)
 
-a simulated linux, living entirely in your browser. everything you install dies when the tab closes. no cookies, no disk, no judgement. clone it, point it at your own bucket and domain — it's one html file and an optional worker, so companies can run their own instance behind their own name.
+a linux-flavored terminal, living entirely in your browser. everything you install dies when the tab closes. no cookies, no disk, no judgement. clone it, point it at your own bucket and domain — it's one html file plus a native rust core compiled to webassembly and an optional worker, so companies can run their own instance behind their own name.
 
 **live at:** https://lunix.blueberryservices.co.za
 
@@ -12,25 +12,27 @@ a simulated linux, living entirely in your browser. everything you install dies 
 
 1. [what it is](#what-it-is)
 2. [architecture](#architecture)
-3. [the terminal](#the-terminal)
-4. [planned commands — being built into the platform](#planned-commands--being-built-into-the-platform)
-5. [storage — the r2 bucket](#storage--the-r2-bucket)
-6. [session lifecycle & the purge](#session-lifecycle--the-purge)
-7. [project layout](#project-layout)
-8. [run it from scratch — your bucket, your domain](#run-it-from-scratch--your-bucket-your-domain)
+3. [the native core — rust → wasm](#the-native-core--rust--wasm)
+4. [the terminal](#the-terminal)
+5. [planned commands — being built into the platform](#planned-commands--being-built-into-the-platform)
+6. [storage — the r2 bucket](#storage--the-r2-bucket)
+7. [session lifecycle & the purge](#session-lifecycle--the-purge)
+8. [project layout](#project-layout)
+9. [run it from scratch — your bucket, your domain](#run-it-from-scratch--your-bucket-your-domain)
    - [local — zero setup](#local--zero-setup)
    - [github pages — static hosting](#github-pages--static-hosting)
    - [cloudflare worker + r2 + your domain — the full install](#cloudflare-worker--r2--your-domain--the-full-install)
-9. [the worker api](#the-worker-api)
-10. [customizing](#customizing)
-11. [why simulated, not a real vm](#why-simulated-not-a-real-vm)
-12. [license & credits](#license--credits)
+10. [building & testing](#building--testing)
+11. [the worker api](#the-worker-api)
+12. [customizing](#customizing)
+13. [why simulated, not a real vm](#why-simulated-not-a-real-vm)
+14. [license & credits](#license--credits)
 
 ---
 
 ## what it is
 
-LUNIX is a fully self-contained, dependency-free browser terminal that simulates a CLI linux install 1:1:
+LUNIX is a fully self-contained, dependency-free browser terminal that simulates a CLI linux install 1:1, with a native rust core loaded as webassembly at boot:
 
 - systemd-style boot sequence (figlet banner, `[    0.000000] [  OK  ]` log lines)
 - `lunix login:` → `Last login:` → `/etc/motd` → bash prompt (no password — just a username)
@@ -41,9 +43,10 @@ LUNIX is a fully self-contained, dependency-free browser terminal that simulates
 - **tasks stay in their lane**: long-running output belongs to the window that started it — `ping` in window 0 keeps ticking into window 0 even while you work in window 1, and its tab gets a tmux-style `!` activity flag until you check it
 - tmux prefix keys, like the real thing: `Ctrl-B` then `c` new window · `n` / `p` next / previous · `0-9` jump to window · `&` kill current (the bar flashes orange while the prefix is armed)
 - a working virtual filesystem (`ls` column-major like real ls, `ls -l` with perms/link-count/date columns, `cd`, `cat`, `mkdir -p`, `touch`, `rm`, `mv`, `cp`, `tree`) and a real in-terminal editor: `nano` opens a full-screen buffer with ^O write out, ^X exit (save prompt on modified buffers), ^K/^U line cut & paste
-- a simulated `apk` package manager with a 21-package index
+- a simulated `apk` package manager with a 22-package index
 - installed tools light up: `cowsay`, `python3`, `git`, `node`, `htop`, `lolcat`, `docker`, `ssh`, `tmux`, `nginx`...
 - `ping` with real DNS resolution (DoH) and authentic RTT statistics, `curl`, `wget`, `sudo`, `su`, `history`, `&&` chaining, arrow-up history
+- real checksumming: `cksum` is computed by the rust/wasm native core and is byte-for-byte compatible with GNU coreutils output (`crc size file`)
 - `>` / `>>` redirection, `reboot`, `poweroff`, `end`, `logout`, `exit`
 - device-first sessions: `exps` downloads the whole session to your machine, `imps` imports it back from a file picker — nothing is stored. `exps lock` seals the archive behind a password (pbkdf2 + aes-gcm), so even the file on your desktop is closed until you say otherwise
 - device-first audio: `music` plays from the bucket or any url, `music imps` streams audio straight off your device — nothing is uploaded
@@ -57,8 +60,9 @@ the aesthetic is the ZTNA portfolio's dark bash theme: `#000` background, `#c9c9
 ```
 ┌─────────────────────────────┐
 │  browser                    │
-│  index.html  ← the entire   │
-│  app. zero dependencies.    │
+│  index.html  ← the terminal │
+│  + assets/lunix_core.wasm   │
+│    (rust: checksums/hashing)│
 │  sessionStorage = the disk  │
 └──────────┬──────────────────┘
            │ static files + /api/bucket
@@ -76,14 +80,31 @@ the aesthetic is the ZTNA portfolio's dark bash theme: `#000` background, `#c9c9
 ```
 
 - the app itself needs **no server** — open `index.html` and it runs.
+- the wasm core is **optional by design**: if `assets/lunix_core.wasm` can't load (offline copy, missing asset), every other feature works untouched and core-backed commands print an honest notice instead of breaking.
 - the worker + R2 add: hosting, the storage API, and the custom domain.
+
+## the native core — rust → wasm
+
+`rust/lunix-core` is a zero-dependency `no_std` rust crate compiled to `wasm32-unknown-unknown` (~650 bytes) and loaded by the terminal at boot. no wasm-bindgen, no glue runtime — a flat C ABI over linear memory:
+
+| export | purpose |
+|---|---|
+| `lunix_abi()` | ABI version handshake (`1`) |
+| `lunix_version_ptr/len()` | version string for `uname`-style reporting |
+| `lunix_mem_alloc(len)` / `lunix_mem_reset()` | bump-arena over a static 64 KiB buffer |
+| `lunix_cksum(ptr, len)` | POSIX cksum (poly `0x04C11DB7`, MSB-first, length folded LE) — **byte-for-byte identical to GNU coreutils** |
+| `lunix_fnv1a64(ptr, len)` | FNV-1a 64-bit hashing (cache keys, dedup) |
+
+the terminal drives it in [`cksum`](#the-terminal): allocate arena → copy file bytes in → call → read the u32 back. correctness is locked by `tests/core.test.js`, which diffs the module against the real GNU `cksum` binary.
+
+why this matters beyond one command: it's the beachhead for the native layer. the roadmap adds rayon-style threading behind COOP/COEP headers (already emitted by the worker), WebGPU compute via `wgpu`, and hot-path moves of the fs layer — same crate, same ABI pattern, no framework lock-in.
 
 ## the terminal
 
 | area | commands |
 |---|---|
 | files | `ls [-l]`, `cd`, `pwd`, `cat`, `echo`, `mkdir [-p]`, `touch`, `rm [-rf]`, `mv`, `cp`, `tree` |
-| system | `whoami`, `id`, `uname [-a -r -m]`, `hostname`, `uptime`, `date`, `free`, `history`, `clear` |
+| system | `whoami`, `id`, `uname [-a -r -m]`, `hostname`, `uptime`, `date`, `free`, `cksum <file...>` (rust/wasm, GNU-compatible), `history`, `clear` |
 | packages | `apk update`, `apk add <pkg...>`, `apk del <pkg>`, `apk search <term>`, `apk info <pkg>` |
 | network | `ping [-c -i -s -t -W -q] <host>` (real DNS via DoH), `curl <url>`, `wget` |
 | auth | `sudo`, `su root`, `login` |
@@ -102,6 +123,7 @@ lunix@lunix:~$ apk add cowsay && cowsay moo
 lunix@lunix:~$ apk add lolcat && lolcat hi
 lunix@lunix:~$ mkdir -p projects/web && cd projects && pwd
 lunix@lunix:~$ ping -c 4 github.com     # real DNS, real-looking rtt stats
+lunix@lunix:~$ echo hello > h.txt && cksum h.txt   # rust core, GNU-compatible crc
 lunix@lunix:~$ exps                      # downloads lunix-session.zip to your device
 lunix@lunix:~$ poweroff      # purges everything
 ```
@@ -338,7 +360,16 @@ tools also deploy to the R2 bucket under `tools/` so they can be fetched from th
 
 ```
 lunix/
-├── index.html          ← the entire app. copy this anywhere, it runs.
+├── index.html          ← the terminal. copy this anywhere, it runs.
+├── Makefile            ← build / test / deploy
+├── package.json        ← dev deps (jsdom for the test suites)
+├── assets/
+│   └── lunix_core.wasm ← built native core (make build)
+├── rust/
+│   └── lunix-core/     ← the native core source (no_std, zero deps)
+│       ├── Cargo.toml
+│       └── src/lib.rs
+├── tests/              ← jsdom regression suites + wasm parity tests (120 checks)
 ├── README.md
 ├── LICENSE             ← MIT, © 2026 Blueberry Services
 ├── LUNIX.jpg
@@ -393,6 +424,7 @@ npx wrangler r2 bucket create lunix
 
 # 2. upload the app (+ optional v86 assets for the real-vm revival)
 npx wrangler r2 object put lunix/index.html --file index.html --remote
+npx wrangler r2 object put lunix/assets/lunix_core.wasm --file assets/lunix_core.wasm --remote
 npx wrangler r2 object put lunix/user/test_download.txt --file test.txt --remote
 
 # 3. deploy the worker
@@ -425,6 +457,18 @@ notes for deployments:
 - **data stays yours** — uploads land in *your* r2 bucket, under your account's controls and region policy; the sim itself stores nothing server-side
 - **the session token is per-tab** (`X-Lunix-Session`) and only gates list/upload/delete; downloads are origin-gated so saved links keep working
 - **air-gapped-ish mode:** serve `index.html` from any static file server (s3, nginx, an intranet share) — users get the full terminal with zero calls to our infrastructure (note: `ping`, `curl`, and url-based `music` still reach the internet by design; on a closed network they just fail like they would on a real box)
+
+## building & testing
+
+prereqs: [rust](https://rustup.rs) with the `wasm32-unknown-unknown` target (`rustup target add wasm32-unknown-unknown`), node ≥ 18, `npm i` once for jsdom.
+
+```sh
+make build     # cargo build → assets/lunix_core.wasm (~650 bytes)
+make test      # wasm parity vs GNU cksum + 6 jsdom regression suites (120 checks)
+make deploy    # build, then upload index.html + wasm to the r2 bucket via wrangler
+```
+
+the jsdom suites boot the real app headlessly: full boot sequence, login, and command execution against mocked network. `tests/core.test.js` instantiates the built wasm directly and diffs it against this machine's GNU coreutils — checksum drift can never ship silently.
 
 ## the worker api
 

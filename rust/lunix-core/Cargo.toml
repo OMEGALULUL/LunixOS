@@ -1,0 +1,16 @@
+[package]
+name = "lunix-core"
+version = "0.1.0"
+edition = "2021"
+description = "LUNIX native core: hot-path routines compiled to WebAssembly, loaded by the terminal at runtime"
+license = "MIT"
+
+[lib]
+crate-type = ["cdylib"]
+path = "src/lib.rs"
+
+[profile.release]
+opt-level = "z"
+lto = true
+panic = "abort"
+strip = true

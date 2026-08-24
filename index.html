@@ -474,7 +474,7 @@ var PKGS = {
   nginx:       { size: 2.4,  desc: "a web server for websites that do not exist" },
   nodejs:      { size: 24.6, desc: "javascript pretending to be a server" },
   openssh:     { size: 6.2,  desc: "ssh into your own delusion" },
-  python3:     { size: 18.2, desc: "a snake that writes code for you" },
+  python3:     { size: 18.2, desc: "a snake that writes code for you (simulated)" },
   ripgrep:     { size: 4.3,  desc: "finds text, faster than you can read it" },
   tmux:        { size: 1.9,  desc: "terminals inside terminals inside browser" },
   tree:        { size: 0.1,  desc: "a forest of directories" },
@@ -503,6 +503,32 @@ var cwd = "/home/lunix";
 var user = "lunix";
 var pkgs = {};
 var hist = [];
+
+// native core — rust compiled to wasm (source: rust/lunix-core). optional by
+// design: if the fetch fails the sim runs exactly as before and commands that
+// need the module say so instead of breaking.
+var CORE = null;
+var CORE_READY = (function () {
+  if (typeof WebAssembly === "undefined" || location.protocol === "file:") return Promise.resolve(false);
+  return fetch("assets/lunix_core.wasm")
+    .then(function (r) { if (!r.ok) throw new Error("http " + r.status); return r.arrayBuffer(); })
+    .then(function (b) { return WebAssembly.instantiate(new Uint8Array(b)); })
+    .then(function (res) {
+      var e = res.instance.exports;
+      if (e.lunix_abi() !== 1) throw new Error("abi " + e.lunix_abi());
+      CORE = e;
+      return true;
+    })
+    .catch(function () { return false; });
+})();
+function coreRun(str) {
+  var bts = new TextEncoder().encode(str);
+  var p = CORE.lunix_mem_alloc(Math.max(bts.length, 1));
+  try {
+    new Uint8Array(CORE.memory.buffer, p, bts.length).set(bts);
+    return { crc: CORE.lunix_cksum(p, bts.length) >>> 0, len: bts.length };
+  } finally { CORE.lunix_mem_reset(); }
+}
 
 // rebuild every dir's kids array from the actual key set
 function rekids() {
@@ -711,7 +737,7 @@ var CMDS = {
   help: function (args) {
     printHtml("available commands (this is a simulation. a lovely one)<br>" +
       "&nbsp;&nbsp;<span class='accent'>ls</span> [-l]&nbsp;&nbsp;<span class='accent'>cd</span> &lt;dir&gt;&nbsp;&nbsp;<span class='accent'>cat</span> &lt;file&gt;&nbsp;&nbsp;<span class='accent'>nano</span> &lt;file&gt;&nbsp;&nbsp;<span class='accent'>pwd</span>&nbsp;&nbsp;<span class='accent'>mkdir</span>&nbsp;&nbsp;<span class='accent'>touch</span>&nbsp;&nbsp;<span class='accent'>rm</span>&nbsp;&nbsp;<span class='accent'>mv</span>&nbsp;&nbsp;<span class='accent'>cp</span>&nbsp;&nbsp;<span class='accent'>tree</span><br>" +
-      "&nbsp;&nbsp;<span class='accent'>whoami</span>&nbsp;&nbsp;<span class='accent'>id</span>&nbsp;&nbsp;<span class='accent'>uname</span>&nbsp;&nbsp;<span class='accent'>hostname</span>&nbsp;&nbsp;<span class='accent'>uptime</span>&nbsp;&nbsp;<span class='accent'>date</span>&nbsp;&nbsp;<span class='accent'>free</span>&nbsp;&nbsp;<span class='accent'>history</span>&nbsp;&nbsp;<span class='accent'>clear</span><br>" +
+      "&nbsp;&nbsp;<span class='accent'>whoami</span>&nbsp;&nbsp;<span class='accent'>id</span>&nbsp;&nbsp;<span class='accent'>uname</span>&nbsp;&nbsp;<span class='accent'>hostname</span>&nbsp;&nbsp;<span class='accent'>uptime</span>&nbsp;&nbsp;<span class='accent'>date</span>&nbsp;&nbsp;<span class='accent'>free</span>&nbsp;&nbsp;<span class='accent'>cksum</span>&nbsp;&nbsp;<span class='accent'>history</span>&nbsp;&nbsp;<span class='accent'>clear</span><br>" +
       "&nbsp;&nbsp;<span class='accent'>apk update|add|del|search|info</span>&nbsp;&nbsp;<span class='accent'>ping</span>&nbsp;&nbsp;<span class='accent'>curl</span>&nbsp;&nbsp;<span class='accent'>wget</span><br>" +
       "&nbsp;&nbsp;<span class='accent'>sudo</span>&nbsp;&nbsp;<span class='accent'>su</span>&nbsp;&nbsp;<span class='accent'>exit</span>&nbsp;&nbsp;<span class='accent'>reboot</span>&nbsp;&nbsp;<span class='accent'>poweroff</span>&nbsp;&nbsp;<span class='accent'>end</span><br>" +
       "&nbsp;&nbsp;<span class='accent'>save down|up|rm|du</span> — the bucket survives the purge<br>" +
@@ -725,6 +751,24 @@ var CMDS = {
       "readline keys: <span class='accent'>Tab</span> completes commands &amp; paths · <span class='accent'>↑/↓</span> walks history · <span class='accent'>Ctrl-R</span> reverse search · <span class='accent'>Ctrl-L</span> clears · <span class='accent'>Ctrl-C</span> cancels the line (select output + Ctrl-C still copies) · <span class='accent'>Ctrl-D</span> logs out · <span class='accent'>Ctrl-U/K/W</span> kill line");
   },
   clear: function () { body.innerHTML = ""; },
+  cksum: function (args) {
+    if (!args.length) return err("cksum: missing operand");
+    if (!CORE) {
+      CORE_READY.then(function (up) {
+        if (up) CMDS.cksum(args);
+        else err("cksum: lunix-core.wasm unavailable — reload online");
+      });
+      return;
+    }
+    var lines = [];
+    for (var i = 0; i < args.length; i++) {
+      var p = norm(resolve(args[i]));
+      if (!fs[p] || fs[p].type !== "file") return err("cksum: " + args[i] + ": No such file or directory");
+      var r = coreRun(fs[p].data);
+      lines.push(r.crc + " " + r.len + " " + args[i]);
+    }
+    print(lines.join("\n"));
+  },
   ls: function (args) {
     var la = false;
     for (var f = 0; f < args.length; f++) if (args[f].indexOf("-") === 0 && args[f].indexOf("l") !== -1) la = true;
