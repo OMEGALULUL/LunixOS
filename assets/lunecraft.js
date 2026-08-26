@@ -506,7 +506,9 @@
     function onLockChange() {
       var locked = document.pointerLockElement === cv;
       pause.style.display = locked ? "none" : "flex";
+      if (locked) { keys = {}; } // flush held keys so the player doesn't resume moving with everything you held during pause
     }
+    pause.addEventListener("click", lockReq);
     function lockReq() { cv.requestPointerLock(); }
     function onResize() {
       var dpr = Math.min(window.devicePixelRatio || 1, 2);
