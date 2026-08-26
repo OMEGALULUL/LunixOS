@@ -767,8 +767,8 @@ var CMDS = {
     function launch(saveData, seedOverride) {
       if (!window.Lunicraft) {
         var sc = document.createElement("script");
-        sc.src = "assets/lunecraft.js";
-        sc.onerror = function () { err("lunicraft: couldn't fetch assets/lunecraft.js — reload online"); };
+        sc.src = "https://raw.githubusercontent.com/OMEGALULUL/LunixOS/tools/assets/lunecraft.js";
+        sc.onerror = function () { err("lunicraft: couldn't fetch from tools branch — are you online?"); };
         sc.onload = function () { go(); };
         document.head.appendChild(sc);
       } else go();
