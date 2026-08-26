@@ -47,7 +47,7 @@ LUNIX is a fully self-contained, dependency-free browser terminal that simulates
 - installed tools light up: `cowsay`, `python3`, `git`, `node`, `htop`, `lolcat`, `docker`, `ssh`, `tmux`, `nginx`...
 - `ping` with real DNS resolution (DoH) and authentic RTT statistics, `curl`, `wget`, `sudo`, `su`, `history`, `&&` chaining, arrow-up history
 - real checksumming: `cksum` is computed by the rust/wasm native core and is byte-for-byte compatible with GNU coreutils output (`crc size file`)
-- **Lunicraft** — `lunecraft` drops you into a voxel world rendered by your own GPU (webgl2, zero dependencies): seeded terrain, mining, building, flying; the save is a tiny edit-diff at `~/.lunecraft` that the purge takes like everything else
+- **Lunicraft** — `lunicraft` drops you into a voxel world rendered by your own GPU (webgl2, zero dependencies): seeded terrain, mining, building, flying; the save is a tiny edit-diff at `~/.lunecraft` that the purge takes like everything else
 - `>` / `>>` redirection, `reboot`, `poweroff`, `end`, `logout`, `exit`
 - device-first sessions: `exps` downloads the whole session to your machine, `imps` imports it back from a file picker — nothing is stored. `exps lock` seals the archive behind a password (pbkdf2 + aes-gcm), so even the file on your desktop is closed until you say otherwise
 - device-first audio: `music` plays from the bucket or any url, `music imps` streams audio straight off your device — nothing is uploaded
@@ -182,7 +182,7 @@ the zip is built in the browser (store-method zip, no dependencies) — comforta
 
 ### lunicraft — a voxel world in the tab
 
-`lunecraft` (or `lunecraft <seed>`) lazy-loads `assets/lunecraft.js` and opens a fullscreen canvas overlay: pointer-lock first person, chunked terrain streamed around you, block break/place with a scroll-wheel hotbar. esc pauses; the ✕ quit button saves and drops you back to the shell.
+`lunicraft` (or `lunicraft <seed>`) lazy-loads `assets/lunecraft.js` and opens a fullscreen canvas overlay: pointer-lock first person, chunked terrain streamed around you, block break/place with a scroll-wheel hotbar. esc pauses; the ✕ quit button saves and drops you back to the shell.
 
 | input | action |
 |---|---|

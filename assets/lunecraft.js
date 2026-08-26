@@ -289,7 +289,7 @@
     wrap.style.cssText = "position:fixed;inset:0;z-index:9998;background:#000;font-family:'Ubuntu Mono',monospace";
     var bar = document.createElement("div");
     bar.style.cssText = "position:absolute;top:0;left:0;right:0;height:28px;background:#0a0a0a;border-bottom:1px solid #222;display:flex;align-items:center;padding:0 10px;color:#c9c9c9;z-index:3";
-    bar.innerHTML = "<span style='color:#4e9a06'>lunecraft</span><span style='color:#666'> — seed " + seed + "</span><span style='flex:1'></span><span id='lc-fps' style='color:#888;margin-right:12px'></span><button id='lc-x' style='background:none;border:1px solid #333;color:#c9c9c9;cursor:pointer;padding:2px 8px'>✕ quit</button>";
+    bar.innerHTML = "<span style='color:#4e9a06'>lunicraft</span><span style='color:#666'> — seed " + seed + "</span><span style='flex:1'></span><span id='lc-fps' style='color:#888;margin-right:12px'></span><button id='lc-x' style='background:none;border:1px solid #333;color:#c9c9c9;cursor:pointer;padding:2px 8px'>✕ quit</button>";
     var cv = document.createElement("canvas");
     cv.style.cssText = "position:absolute;inset:0;width:100%;height:100%;display:block;outline:none";
     var hud = document.createElement("div");
@@ -297,7 +297,7 @@
     hud.textContent = "+";
     var pause = document.createElement("div");
     pause.style.cssText = "position:absolute;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.55);color:#c9c9c9;z-index:2;flex-direction:column;text-align:center";
-    pause.innerHTML = "<div style='font-size:22px;margin-bottom:8px'><span style='color:#4e9a06'>lunecraft</span> paused</div><div style='color:#888'>click to grab the mouse · wasd move · space jump<br>left click mine · right click place · esc pause</div>";
+    pause.innerHTML = "<div style='font-size:22px;margin-bottom:8px'><span style='color:#4e9a06'>lunicraft</span> paused</div><div style='color:#888'>click to grab the mouse · wasd move · space jump<br>left click mine · right click place · esc pause</div>";
     wrap.appendChild(cv); wrap.appendChild(hud); wrap.appendChild(bar); wrap.appendChild(pause);
     mount.appendChild(wrap);
 
