@@ -231,7 +231,6 @@ export default {
     const mimes = {
       "index.html": "text/html; charset=utf-8",
       "assets/lunix_core.wasm": "application/wasm",
-      "assets/lunecraft.js": "text/javascript",
       "v86.js": "text/javascript",
       "v86.wasm": "application/wasm",
       "alpine.iso": "application/octet-stream",
