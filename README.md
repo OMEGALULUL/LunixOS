@@ -14,6 +14,8 @@ Tools are installed into the sim's virtual memory (`/usr/bin/<name>.slux`) — t
 
 ## the .slux format
 
+**full reference → [SLUX-SYNTAX.md](SLUX-SYNTAX.md)** — every section, directive, global, the security model, testing, and an annotated example. the short version:
+
 A `.slux` file has three parts:
 
 ```slux
@@ -65,8 +67,9 @@ Keep one file per tool, named exactly `<name>.slux`. Base files (`index.html`, `
 
 | tool | desc |
 |---|---|
+| `dig` | dns interrogator over DNS-over-HTTPS — `dig example.com MX`, `+short`, `@1.1.1.1`, `-x` reverse |
 | `nmap` | network exploration / port scanner — `nmap -sV -p 22,80,443 <host>`, `-sn`, `-O`, `-A`, `-oN <file>`, `--help` |
-| `wids` | PocketWIDS console — live wireless IDS events from the M5Stick sensor — `wids log [n]`, `wids status`, `wids help` |
+| `snake` | playable snake in the terminal — arrows steer, `snake stop` abandons the round, best score in `~/.snake` |
 | `ytc` | YouTube converter — `ytc <link> [mp3\|mp4] [quality]`, saves straight to your device (needs the lunix worker's `/api/ytc` proxy) |
 
 ## tips
