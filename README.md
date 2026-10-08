@@ -528,6 +528,7 @@ curl -X DELETE -H "X-Lunix-Session: <session-id>" \
 - **motd / os-release**: edit `/etc/motd` and `/etc/os-release` in the `fs` map
 - **theme**: edit the `:root` variables at the top of the `<style>` block
 - **commands**: add a key to the `CMDS` map
+- **tools (`.slux`)**: write a standalone tool and publish it on the `tools` branch — full syntax manual: [`tools/SLUX-SYNTAX.md`](https://github.com/OMEGALULUL/LunixOS/blob/tools/SLUX-SYNTAX.md) (format, globals, security model, testing, annotated example)
 
 ## why simulated, not a real vm
 
