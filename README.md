@@ -107,9 +107,10 @@ why this matters beyond one command: it's the beachhead for the native layer. th
 | files | `ls [-l]`, `cd`, `pwd`, `cat`, `echo`, `mkdir [-p]`, `touch`, `rm [-rf]`, `mv`, `cp`, `tree` |
 | system | `whoami`, `id`, `uname [-a -r -m]`, `hostname`, `uptime`, `date`, `free`, `cksum <file...>` (rust/wasm, GNU-compatible), `history`, `clear` |
 | packages | `apk update`, `apk add <pkg...>`, `apk del <pkg>`, `apk search <term>`, `apk info <pkg>` |
-| network | `ping [-c -i -s -t -W -q] <host>` (real DNS via DoH), `curl <url>`, `wget` |
+| network | `ping [-c -i -s -t -W -q] <host>` (real DNS via DoH), `dig <name> [<type>]` (DoH, install via `download dig`), `curl <url>`, `wget`, `ip addr|-brief addr|route|link` (the sim's NIC: 192.168.86.100/24), `hostname [-I]`, `iptables -L|S [-n] [-v]` (the gate as firewall rules) |
 | auth | `sudo`, `su root`, `login` |
 | lifecycle | `logout`, `exit`, `reboot`, `poweroff`, `end` |
+| display | `console [on|off]` — drop the desktop window: full-screen bare terminal, every pixel belongs to the sim (like an arch install). no args flips it. persists per-session |
 | storage | `save down [<name>]`, `save up <file>`, `save rm <name>`, `save du` |
 | tools | `download <link|name>`, `download list`, `download rm <name>` · `gitshop` — browse every installable item on the branches outside main |
 | media | `music <song>` — play audio from the bucket or a url · `music imps` — pick audio off your device and play it · `music stop` — stop (mp3, wav, ogg, m4a, aac, flac, opus, webm) |
@@ -182,7 +183,7 @@ the zip is built in the browser (store-method zip, no dependencies) — comforta
 
 ### lunicraft — a voxel world in the tab
 
-`lunicraft` (or `lunicraft <seed>`) lazy-loads `assets/lunecraft.js` and opens a fullscreen canvas overlay: pointer-lock first person, chunked terrain streamed around you, block break/place with a scroll-wheel hotbar. esc pauses; the ✕ quit button saves and drops you back to the shell.
+`lunicraft` (or `lunicraft <seed>`) lazy-loads `assets/lunecraft.js` from the `tools` branch (raw fetch, same pattern as the snake game) and opens a fullscreen canvas overlay: pointer-lock first person, chunked terrain streamed around you, block break/place with a scroll-wheel hotbar. esc pauses; the ✕ quit button saves and drops you back to the shell.
 
 | input | action |
 |---|---|
@@ -229,10 +230,10 @@ notes:
 |---|---|---|
 | `ping [-c -i -s -t -W -q] <host>` | real ping: resolves hostnames via DoH (dns.google), progressive replies, ttl, ~3% loss, `rtt min/avg/max/mdev` — sim hosts (`lunix`, `localhost`) are instant | done |
 | `nmap [-sV] [-sn] [-p <ports>] <host>` | scan the sim's internet — the sim answers: host up, the usual ports open (install via `download nmap`) | done |
-| `dig <name> [<type>]` | real dns lookups via 1.1.1.1 (DoH), like the portfolio terminal | planned |
-| `iptables -L` | show the gate as firewall rules (the mTLS zero-trust story) | planned |
+| `dig <name> [<type>]` | real dns lookups over DoH — dns.google by default, `@8.8.8.8` / `@1.1.1.1` pick the resolver (install via `download dig`) | done |
+| `iptables -L` / `iptables -S` | the gate as firewall rules: default-deny INPUT, mTLS on 443, `-n` / `-v` / chain args like the real thing | done |
 | `connect` | show this session's identity and badge state | planned |
-| `ip addr` / `hostname -I` | the sim's network card: 192.168.86.100/24, latency 0ms | planned |
+| `ip addr` / `ip route` / `hostname -I` | the sim's network card: 192.168.86.100/24, default gw 192.168.86.1, latency 0ms | done |
 
 ### system
 
@@ -389,7 +390,7 @@ lunix/
 │   └── lunix-core/     ← the native core source (no_std, zero deps)
 │       ├── Cargo.toml
 │       └── src/lib.rs
-├── tests/              ← jsdom regression suites + wasm parity tests (120 checks)
+├── tests/              ← jsdom regression suites + wasm parity tests (205 checks)
 ├── README.md
 ├── LICENSE             ← MIT, © 2026 Blueberry Services
 ├── LUNIX.jpg
@@ -484,7 +485,7 @@ prereqs: [rust](https://rustup.rs) with the `wasm32-unknown-unknown` target (`ru
 
 ```sh
 make build     # cargo build → assets/lunix_core.wasm (~650 bytes)
-make test      # wasm parity vs GNU cksum + 6 jsdom regression suites (120 checks)
+make test      # wasm parity vs GNU cksum + lunecraft engine math + 9 jsdom regression suites (205 checks)
 make deploy    # build, then upload index.html + wasm to the r2 bucket via wrangler
 ```
 

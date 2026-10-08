@@ -27,6 +27,7 @@ $(ASSET): $(RUST_DIR)/src/lib.rs $(RUST_DIR)/Cargo.toml
 
 test:
 	node tests/core.test.js
+	node tests/lunecraft.test.js
 	@for t in tests/lunix-smoke*.js; do echo "== $$t =="; node $$t || exit 1; done
 
 deploy: build

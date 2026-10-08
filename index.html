@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="console">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
@@ -40,6 +40,13 @@
   }
   .window.max { inset: 0; border-radius: 0; border: 0; }
   .window.minimized { transform: translateY(105vh) scale(.35); opacity: 0; pointer-events: none; }
+
+  /* ---- console mode: no window, no buttons. every pixel is the terminal. ---- */
+  html.console { background: #000; }
+  html.console body { background: #000; }
+  html.console .window { inset: 0; border: 0; border-radius: 0; box-shadow: none; }
+  html.console .titlebar { display: none; }
+  html.console .dockpill { display: none !important; }
 
   .titlebar {
     flex-shrink: 0;
@@ -377,6 +384,9 @@
   .vidbox .vid-close { background: none; border: 0; color: var(--accent); font: inherit; cursor: pointer; padding: 0 4px; }
   .vidbox video { display: block; width: 100%; max-height: 60vh; background: #000; }
 </style>
+<script>
+  try { var _cm = sessionStorage.getItem("lunix-console"); if (_cm === "1") document.documentElement.classList.add("console"); else if (_cm === "0") document.documentElement.classList.remove("console"); } catch (e) {}
+</script>
 </head>
 <body>
 
@@ -738,8 +748,8 @@ var CMDS = {
     printHtml("available commands (this is a simulation. a lovely one)<br>" +
       "&nbsp;&nbsp;<span class='accent'>ls</span> [-l]&nbsp;&nbsp;<span class='accent'>cd</span> &lt;dir&gt;&nbsp;&nbsp;<span class='accent'>cat</span> &lt;file&gt;&nbsp;&nbsp;<span class='accent'>nano</span> &lt;file&gt;&nbsp;&nbsp;<span class='accent'>pwd</span>&nbsp;&nbsp;<span class='accent'>mkdir</span>&nbsp;&nbsp;<span class='accent'>touch</span>&nbsp;&nbsp;<span class='accent'>rm</span>&nbsp;&nbsp;<span class='accent'>mv</span>&nbsp;&nbsp;<span class='accent'>cp</span>&nbsp;&nbsp;<span class='accent'>tree</span><br>" +
       "&nbsp;&nbsp;<span class='accent'>whoami</span>&nbsp;&nbsp;<span class='accent'>id</span>&nbsp;&nbsp;<span class='accent'>uname</span>&nbsp;&nbsp;<span class='accent'>hostname</span>&nbsp;&nbsp;<span class='accent'>uptime</span>&nbsp;&nbsp;<span class='accent'>date</span>&nbsp;&nbsp;<span class='accent'>free</span>&nbsp;&nbsp;<span class='accent'>cksum</span>&nbsp;&nbsp;<span class='accent'>lunicraft</span>&nbsp;&nbsp;<span class='accent'>history</span>&nbsp;&nbsp;<span class='accent'>clear</span><br>" +
-      "&nbsp;&nbsp;<span class='accent'>apk update|add|del|search|info</span>&nbsp;&nbsp;<span class='accent'>ping</span>&nbsp;&nbsp;<span class='accent'>curl</span>&nbsp;&nbsp;<span class='accent'>wget</span><br>" +
-      "&nbsp;&nbsp;<span class='accent'>sudo</span>&nbsp;&nbsp;<span class='accent'>su</span>&nbsp;&nbsp;<span class='accent'>exit</span>&nbsp;&nbsp;<span class='accent'>reboot</span>&nbsp;&nbsp;<span class='accent'>poweroff</span>&nbsp;&nbsp;<span class='accent'>end</span><br>" +
+      "&nbsp;&nbsp;<span class='accent'>apk update|add|del|search|info</span>&nbsp;&nbsp;<span class='accent'>ping</span>&nbsp;&nbsp;<span class='accent'>curl</span>&nbsp;&nbsp;<span class='accent'>wget</span>&nbsp;&nbsp;<span class='accent'>ip addr|route</span>&nbsp;&nbsp;<span class='accent'>iptables -L</span><br>" +
+      "&nbsp;&nbsp;<span class='accent'>sudo</span>&nbsp;&nbsp;<span class='accent'>su</span>&nbsp;&nbsp;<span class='accent'>exit</span>&nbsp;&nbsp;<span class='accent'>reboot</span>&nbsp;&nbsp;<span class='accent'>poweroff</span>&nbsp;&nbsp;<span class='accent'>end</span>&nbsp;&nbsp;<span class='accent'>console</span> — drop the window, full-screen bare terminal<br>" +
       "&nbsp;&nbsp;<span class='accent'>save down|up|rm|du</span> — the bucket survives the purge<br>" +
       "&nbsp;&nbsp;<span class='accent'>download</span> &lt;link|name&gt; — install tools from github into the virtual memory<br>" +
       "&nbsp;&nbsp;<span class='accent'>gitshop</span> — browse every installable item on the branches outside main<br>" +
@@ -751,6 +761,22 @@ var CMDS = {
       "readline keys: <span class='accent'>Tab</span> completes commands &amp; paths · <span class='accent'>↑/↓</span> walks history · <span class='accent'>Ctrl-R</span> reverse search · <span class='accent'>Ctrl-L</span> clears · <span class='accent'>Ctrl-C</span> cancels the line (select output + Ctrl-C still copies) · <span class='accent'>Ctrl-D</span> logs out · <span class='accent'>Ctrl-U/K/W</span> kill line");
   },
   clear: function () { body.innerHTML = ""; },
+  console: function (args) {
+    if (args[0] === "-h" || args[0] === "--help")
+      return print("console [on|off] — drop the desktop window: every pixel becomes the terminal (like an arch install). no args flips it.");
+    var on = document.documentElement.classList.contains("console");
+    if (args[0] === "on") on = true;
+    else if (args[0] === "off") on = false;
+    else on = !on;
+    try { sessionStorage.setItem("lunix-console", on ? "1" : "0"); } catch (e) {}
+    document.documentElement.classList.toggle("console", on);
+    var win = document.getElementById("appwin");
+    if (on && win) win.classList.remove("minimized");
+    var pill = document.getElementById("dockpill");
+    if (pill) pill.classList.remove("on");
+    printHtml("<span class='" + (on ? "accent" : "dim") + "'>console mode: " + (on ? "on — no window. only the terminal." : "off — the window is back") + "</span>");
+    input.focus();
+  },
   lunicraft: function (args) {
     if (args[0] === "-h" || args[0] === "--help")
       return print("lunicraft — a voxel world in your tab (webgl2)\n  lunicraft            resume or start a world\n  lunicraft <seed>     start fresh with a seed you chose\n  lunicraft reset      wipe the save (the purge does this anyway)\n\nwasd move · space jump · F fly · left mine · right place · wheel picks block · arrows or Q/E turn · esc pauses");
@@ -1120,7 +1146,13 @@ var CMDS = {
     if (args.indexOf("-m") !== -1) return print("x86_64");
     print("LUNIX");
   },
-  hostname: function () { print("lunix"); },
+  hostname: function (args) {
+    if (args.indexOf("-I") !== -1 || args.indexOf("-i") !== -1 || args.indexOf("--all-ip-addresses") !== -1) return print("192.168.86.100");
+    if (args.indexOf("-s") !== -1 || args.indexOf("--short") !== -1) return print("lunix");
+    for (var i = 0; i < args.length; i++)
+      if (args[i].charAt(0) === "-") return err("hostname: invalid option -- '" + args[i].replace(/^-+/, "") + "'");
+    print("lunix");
+  },
   uptime: function () {
     var s = Math.floor((Date.now() - bootT) / 1000);
     var m = Math.floor(s / 60);
@@ -1203,6 +1235,114 @@ var CMDS = {
     printHtml("<html><head><title>" + (host || "example") + "</title></head><body><h1>this website does not exist</h1><p>but if it did, it would be served instantly from the cloud.</p><p>the cloud is in your browser. everything is in your browser.</p></body></html>");
   },
   wget: function () { print("wget: this is curl's 90s cousin. use curl. or do not. both fake."); },
+  ip: function (args) {
+    var usage = "Usage: ip addr [-brief] | ip route  — this machine's network card: 192.168.86.100/24";
+    if (!args.length || args[0] === "-h" || args[0] === "--help") return print(usage);
+    var brief = false, obj = null;
+    for (var i = 0; i < args.length; i++) {
+      var a = args[i];
+      if (a === "-b" || a === "-brief" || a === "-br") brief = true;
+      else if (a === "-4" || a === "-6") { /* one family only — the sim has one */ }
+      else if (a.charAt(0) === "-" && a !== "-") return err("ip: unknown option '" + a + "' — try 'ip -h'");
+      else { obj = a; break; }
+    }
+    if (obj === "a" || obj === "addr" || obj === "address") {
+      if (brief) return printHtml(
+        "<span>lo               UNKNOWN        127.0.0.1/8</span><br>" +
+        "<span>eth0             UP             192.168.86.100/24</span>");
+      printHtml(
+        "1: lo: &lt;LOOPBACK,UP,LOWER_UP&gt; mtu 65536 qdisc noqueue state UNKNOWN group default qlen 1000<br>" +
+        "    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00<br>" +
+        "    inet 127.0.0.1/8 scope host lo<br>" +
+        "       valid_lft forever preferred_lft forever<br>" +
+        "2: eth0: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc fq_codel state UP group default qlen 1000<br>" +
+        "    link/ether 02:42:c0:a8:56:64 brd ff:ff:ff:ff:ff:ff<br>" +
+        "    inet 192.168.86.100/24 brd 192.168.86.255 scope global dynamic eth0<br>" +
+        "       valid_lft 86399sec preferred_lft 86399sec");
+      return;
+    }
+    if (obj === "r" || obj === "route" || obj === "routes") {
+      printHtml(
+        "default via 192.168.86.1 dev eth0 proto dhcp src 192.168.86.100 metric 100 hlim 255<br>" +
+        "192.168.86.0/24 dev eth0 proto kernel scope link src 192.168.86.100 metric 100<br>" +
+        "127.0.0.0/8 dev lo proto kernel scope link src 127.0.0.1");
+      return;
+    }
+    if (obj === "l" || obj === "link") {
+      printHtml(
+        "1: lo: &lt;LOOPBACK,UP,LOWER_UP&gt; mtu 65536 qdisc noqueue state UNKNOWN mode DEFAULT group default qlen 1000<br>" +
+        "    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00<br>" +
+        "2: eth0: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc fq_codel state UP mode DEFAULT group default qlen 1000<br>" +
+        "    link/ether 02:42:c0:a8:56:64 brd ff:ff:ff:ff:ff:ff");
+      return;
+    }
+    err('Object "' + obj + '" is unknown, try "ip -help".');
+  },
+  iptables: function (args) {
+    var usage = "Usage: iptables -L [chain] [-n] [-v] | iptables -S  — the gate, as firewall rules (zero-trust: default deny in, mTLS on 443)";
+    if (!args.length || args[0] === "-h" || args[0] === "--help") return print(usage);
+    var list = false, numeric = false, verbose = false, script = false, chain = null, table = "filter";
+    for (var i = 0; i < args.length; i++) {
+      var a = args[i];
+      if (a === "-L" || a === "--list") list = true;
+      else if (a === "-S" || a === "--list-rules") script = true;
+      else if (a === "-n" || a === "--numeric") numeric = true;
+      else if (a === "-v" || a === "--verbose") verbose = true;
+      else if (a === "-t" || a === "--table") table = (args[++i] || "filter");
+      else if (/^(-A|-I|-D|-R|-P|-N|-F|-X|-Z|-E|-m|-j|-g|--append|--insert|--delete|--replace|--policy|--new-chain|--flush|--delete-chain|--zero|--rename-chain)$/.test(a))
+        return err("iptables: this table is read-only — the gate was configured long ago. try 'iptables -L'.");
+      else if (a.charAt(0) === "-" && a !== "-") return err("iptables: unknown option '" + a + "' — try 'iptables -h'");
+      else chain = a.toUpperCase();
+    }
+    if (table !== "filter") return err("iptables: table '" + table + "' does not exist here — the gate only keeps the filter table.");
+    if (numeric || verbose) list = true;
+    if (!list && !script)
+      return err("iptables: this table is read-only — the gate was configured long ago. try 'iptables -L'.");
+    var chains = [
+      { name: "INPUT", policy: "DROP", rules: [
+        { t: "ACCEPT", p: "all", opt: "", extra: "ctstate RELATED,ESTABLISHED", slx: "-m conntrack --ctstate RELATED,ESTABLISHED" },
+        { t: "ACCEPT", p: "all", opt: "", extra: "iif lo", slx: "-i lo" },
+        { t: "ACCEPT", p: "tcp", opt: "", extra: "tcp dpt:https ctstate NEW /* mTLS: client cert or nothing */", slx: "-p tcp --dport 443 -m conntrack --ctstate NEW # mTLS: client cert or nothing" },
+        { t: "DROP",   p: "all", opt: "", extra: "/* no cert, no entry */", slx: "# no cert, no entry" }
+      ]},
+      { name: "FORWARD", policy: "DROP", rules: [
+        { t: "DROP", p: "all", opt: "", extra: "/* this machine does not forward packets */", slx: "# this machine does not forward packets" }
+      ]},
+      { name: "OUTPUT", policy: "ACCEPT", rules: [
+        { t: "ACCEPT", p: "all", opt: "", extra: "/* egress is free — the trust lives at the gate */", slx: "# egress is free — the trust lives at the gate" }
+      ]}
+    ];
+    if (chain) {
+      var hit = chains.filter(function (c) { return c.name === chain; })[0];
+      if (!hit) return err("iptables: No chain/target/match by that name.");
+      chains = [hit];
+    }
+    if (script) {
+      for (var ci = 0; ci < chains.length; ci++) {
+        var c = chains[ci];
+        print("-P " + c.name + " " + c.policy);
+        for (var ri = 0; ri < c.rules.length; ri++) print("-A " + c.name + " " + c.rules[ri].slx + " -j " + c.rules[ri].t);
+      }
+      return;
+    }
+    var pad = function (s, n) { s = String(s); while (s.length < n) s += " "; return s; };
+    var src = numeric ? "0.0.0.0/0" : "anywhere";
+    for (var k = 0; k < chains.length; k++) {
+      var ch = chains[k];
+      print("Chain " + ch.name + " (policy " + ch.policy + (verbose ? " 0 packets, 0 bytes)" : ")"));
+      print(verbose ? pad("pkts", 6) + pad("bytes", 7) + pad("target", 10) + pad("prot", 5) + pad("opt", 4) + pad("in", 3) + pad("out", 4) + pad("source", 21) + "destination"
+                    : pad("target", 10) + pad("prot", 5) + pad("opt", 4) + pad("source", 21) + "destination");
+      for (var r = 0; r < ch.rules.length; r++) {
+        var rule = ch.rules[r];
+        var row = verbose
+          ? pad("0", 6) + pad("0", 7) + pad(rule.t, 10) + pad(rule.p, 5) + pad(rule.opt, 4) + pad("*", 3) + pad("*", 4) + pad(src, 21) + src
+          : pad(rule.t, 10) + pad(rule.p, 5) + pad(rule.opt, 4) + pad(src, 21) + src;
+        if (rule.extra) row += "  " + rule.extra;
+        print(row);
+      }
+      if (k < chains.length - 1) print("");
+    }
+  },
   save: function (args) {
     var sub = args[0];
     var bad = function (n) { return n.indexOf("/") !== -1 || n.indexOf("..") !== -1; };
